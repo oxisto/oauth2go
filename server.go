@@ -6,9 +6,13 @@ import (
 	"crypto/rand"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
+	"strings"
+	"time"
 
+	"github.com/golang-jwt/jwt/v4"
 	"golang.org/x/oauth2"
 )
 
@@ -114,10 +118,37 @@ func (srv *server) handleToken(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+// doClientCredentialsFlow implements the Client Credentials Grant
+// flow (see https://datatracker.ietf.org/doc/html/rfc6749#section-4.4).
 func (srv *server) doClientCredentialsFlow(w http.ResponseWriter, r *http.Request) {
-	var token oauth2.Token
+	var (
+		err    error
+		token  oauth2.Token
+		client *client
+		expiry time.Time
+	)
 
-	token.AccessToken = "some access token"
+	// Retrieve the client
+	if client, err = srv.retrieveClient(r); err != nil {
+		w.Header().Set("WWW-Authenticate", "Basic")
+		writeError(w, 401, "invalid_client")
+		return
+	}
+
+	expiry = time.Now().Add(time.Hour * 24)
+
+	// Create a new JWT
+	t := jwt.NewWithClaims(jwt.SigningMethodES256, jwt.RegisteredClaims{
+		Subject:   client.clientID,
+		ExpiresAt: jwt.NewNumericDate(expiry),
+	})
+	t.Header["kid"] = 1
+
+	token.TokenType = "Bearer"
+	token.Expiry = expiry
+	if token.AccessToken, err = t.SignedString(srv.signingKey); err != nil {
+		writeError(w, 500, "error while creating JWT")
+	}
 
 	writeJSON(w, &token)
 }
@@ -142,6 +173,46 @@ func (srv *server) handleJWKS(w http.ResponseWriter, r *http.Request) {
 	}
 
 	writeJSON(w, &keySet)
+}
+
+func (srv *server) retrieveClient(r *http.Request) (*client, error) {
+	var (
+		idx           int
+		b             []byte
+		authorization string
+		basic         string
+		clientID      string
+		clientSecret  string
+	)
+
+	authorization = r.Header.Get("authorization")
+	idx = strings.Index(authorization, "Basic ")
+	if idx == -1 {
+		return nil, errors.New("invalid authentication scheme")
+	}
+
+	b, err := base64.StdEncoding.DecodeString(authorization[idx+6:])
+	if err != nil {
+		return nil, fmt.Errorf("could not decode basic authentication: %w", err)
+	}
+
+	basic = string(b)
+	idx = strings.Index(basic, ":")
+	if idx == -1 {
+		return nil, errors.New("misformed basic authentication")
+	}
+
+	clientID = basic[0:idx]
+	clientSecret = basic[idx+1:]
+
+	// Look for a matching client
+	for _, c := range srv.clients {
+		if c.clientID == clientID && c.clientSecret == clientSecret {
+			return c, nil
+		}
+	}
+
+	return nil, errors.New("no matching client")
 }
 
 func writeError(w http.ResponseWriter, statusCode int, error string) {
