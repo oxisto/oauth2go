@@ -1,5 +1,11 @@
 # oauth2go
 
+[![build](https://github.com/github.com/oxisto/oauth2go/actions/workflows/build.yml/badge.svg)](https://github.com/github.com/oxisto/oauth2go/actions/workflows/build.yml)
+[![](https://godoc.org/github.com/oxisto/oauth2go?status.svg)](https://pkg.go.dev/github.com/oxisto/oauth2go)
+[![Go Report Card](https://goreportcard.com/badge/github.com/oxisto/oauth2go)](https://goreportcard.com/report/github.com/oxisto/oauth2go)
+[![codecov](https://codecov.io/gh/github.com/oxisto/oauth2go/branch/main/graph/badge.svg)](https://codecov.io/gh/github.com/oxisto/oauth2go)
+
+
 ## What is this?
 
 `oauth2go` aims to be a basic [OAuth 2.0](https://datatracker.ietf.org/doc/html/rfc6749) server that implements at least some of the most basic OAuth 2.0 flows.
