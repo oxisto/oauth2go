@@ -1,9 +1,9 @@
 # oauth2go
 
-[![build](https://github.com/github.com/oxisto/oauth2go/actions/workflows/build.yml/badge.svg)](https://github.com/github.com/oxisto/oauth2go/actions/workflows/build.yml)
+[![build](https://github.com/oxisto/oauth2go/actions/workflows/build.yml/badge.svg)](https://github.com/oxisto/oauth2go/actions/workflows/build.yml)
 [![](https://godoc.org/github.com/oxisto/oauth2go?status.svg)](https://pkg.go.dev/github.com/oxisto/oauth2go)
 [![Go Report Card](https://goreportcard.com/badge/github.com/oxisto/oauth2go)](https://goreportcard.com/report/github.com/oxisto/oauth2go)
-[![codecov](https://codecov.io/gh/github.com/oxisto/oauth2go/branch/main/graph/badge.svg)](https://codecov.io/gh/github.com/oxisto/oauth2go)
+[![codecov](https://codecov.io/gh/oxisto/oauth2go/branch/main/graph/badge.svg)](https://codecov.io/gh/oxisto/oauth2go)
 
 
 ## What is this?
