@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"testing"
 
+	"github.com/golang-jwt/jwt/v4"
 	"golang.org/x/oauth2/clientcredentials"
 )
 
@@ -44,10 +45,10 @@ func Test_server_handleToken(t *testing.T) {
 }
 
 func TestIntegration(t *testing.T) {
-	srv := NewServer(":0", WithClient("admin", "admin"), WithClient("client", "secret"))
+	srv := NewServer(":0", WithUser("admin", "admin"), WithClient("client", "secret"))
 	ln, err := net.Listen("tcp", srv.Addr)
 	if err != nil {
-		t.Errorf("[TestIntegration] Error while listening key: %v", err)
+		t.Errorf("Error while listening key: %v", err)
 	}
 
 	go srv.Serve(ln)
@@ -55,14 +56,23 @@ func TestIntegration(t *testing.T) {
 
 	config := clientcredentials.Config{
 		ClientID:     "client",
-		ClientSecret: "client",
+		ClientSecret: "secret",
 		TokenURL:     fmt.Sprintf("http://localhost:%d/token", ln.Addr().(*net.TCPAddr).Port),
 	}
 
 	token, err := config.Token(context.Background())
 	if err != nil {
-		t.Errorf("[TestIntegration] Error while retrieving a token: %v", err)
+		t.Errorf("Error while retrieving a token: %v", err)
 	}
 
 	log.Printf("Token: %s", token.AccessToken)
+
+	jwtoken, err := jwt.ParseWithClaims(token.AccessToken, &jwt.RegisteredClaims{}, func(t *jwt.Token) (interface{}, error) {
+		return &srv.signingKey.PublicKey, nil
+	})
+	if err != nil {
+		t.Errorf("Error while retrieving a token: %v", err)
+	}
+
+	log.Printf("JWT: %+v", jwtoken)
 }
