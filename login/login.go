@@ -11,7 +11,6 @@ import (
 	"crypto/rand"
 	"embed"
 	"encoding/base64"
-	"errors"
 	"html/template"
 	"log"
 	"net/http"
@@ -23,8 +22,6 @@ import (
 
 //go:embed login.html
 var files embed.FS
-
-var ErrInvalidUserCredentials = errors.New("invalid user credentials")
 
 func WithLoginPage(opts ...handlerOption) oauth2.AuthorizationServerOption {
 	h := NewHandler()
@@ -188,18 +185,14 @@ func (h *handler) handleLoginPage(w http.ResponseWriter, r *http.Request) {
 func (h *handler) doLoginPost(w http.ResponseWriter, r *http.Request) {
 	var err error
 	if err = r.ParseForm(); err != nil {
-		h.log.Printf("Error while parsing form data: %v", err)
 		http.Error(w, "could not parse form data", http.StatusInternalServerError)
 		return
 	}
 
-	user, err := h.user(r.FormValue("username"), r.FormValue("password"))
-	if err != nil && err == ErrInvalidUserCredentials {
+	user := h.user(r.FormValue("username"), r.FormValue("password"))
+	if user == nil {
 		// TODO(oxisto): Redirect back to login page?
-		http.Error(w, err.Error(), http.StatusUnauthorized)
-		return
-	} else if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		http.Error(w, "invalid credentials", http.StatusUnauthorized)
 		return
 	}
 
@@ -220,13 +213,13 @@ func (h *handler) doLoginPost(w http.ResponseWriter, r *http.Request) {
 	http.Redirect(w, r, "/", http.StatusSeeOther)
 }
 
-func (h *handler) user(username string, password string) (*User, error) {
+func (h *handler) user(username string, password string) *User {
 	// Look for username and password
 	for _, u := range h.users {
 		if u.name == username && u.password == password {
-			return u, nil
+			return u
 		}
 	}
 
-	return nil, ErrInvalidUserCredentials
+	return nil
 }

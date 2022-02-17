@@ -8,6 +8,7 @@
 package login
 
 import (
+	"log"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -133,6 +134,84 @@ func Test_handler_doLoginGet(t *testing.T) {
 				if gotCode != tt.wantCode {
 					t.Errorf("handler.doLoginGet() = %v, want %v", gotBody, tt.wantBody)
 				}
+			}
+		})
+	}
+}
+
+func Test_handler_doLoginPost(t *testing.T) {
+	type fields struct {
+		sessions map[string]*session
+		users    []*User
+		log      oauth2.Logger
+	}
+	type args struct {
+		r *http.Request
+	}
+	tests := []struct {
+		name     string
+		fields   fields
+		args     args
+		wantCode int
+	}{
+		{
+			name: "Existing user",
+			fields: fields{
+				sessions: make(map[string]*session),
+				users: []*User{
+					{name: "admin", password: "admin"},
+				},
+				log: log.Default(),
+			},
+			args: args{
+				r: &http.Request{
+					Method: "POST",
+					URL:    &url.URL{Host: "localhost", Path: "/login"},
+					PostForm: url.Values{
+						"username": []string{"admin"},
+						"password": []string{"admin"},
+					},
+				},
+			},
+			wantCode: http.StatusSeeOther,
+		},
+		{
+			name: "Invalid credentials",
+			fields: fields{
+				sessions: make(map[string]*session),
+				users: []*User{
+					{name: "admin", password: "admin"},
+				},
+				log: log.Default(),
+			},
+			args: args{
+				r: &http.Request{
+					Method: "POST",
+					URL:    &url.URL{Host: "localhost", Path: "/login"},
+					PostForm: url.Values{
+						"username": []string{"notadmin"},
+						"password": []string{"admin"},
+					},
+				},
+			},
+			wantCode: http.StatusUnauthorized,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			h := &handler{
+				sessions: tt.fields.sessions,
+				users:    tt.fields.users,
+				log:      tt.fields.log,
+			}
+
+			rr := httptest.NewRecorder()
+			h.doLoginPost(rr, tt.args.r)
+
+			gotCode := rr.Code
+			if gotCode != tt.wantCode {
+				t.Errorf("handler.doLoginPost() = %v, want %v", gotCode, tt.wantCode)
 			}
 		})
 	}
