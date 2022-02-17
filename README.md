@@ -24,9 +24,25 @@ This project mainly started out of the need to have a very small, embedded OAuth
 
 Well, I have to program it first.
 
+```golang
+import (
+    oauth2 "github.com/oxisto/oauth2go"
+    "github.com/oxisto/oauth2go/login"
+)
+
+func main() {
+    var srv *oauth2.AuthorizationServer
+
+	srv = oauth2.NewServer(":8080",
+        login.WithLoginPage(login.WithUser("admin", "admin")),
+    )
+
+    srv.ListenAndServe()
+}
+```
+
 ## (To be) Implemented Standards
 
 * [RFC 6749](https://datatracker.ietf.org/doc/html/rfc6749). The basics
 * [RFC 6750](https://datatracker.ietf.org/doc/html/rfc6750). We are exclusively using JWTs as bearer tokens
 * [RFC 7517](https://datatracker.ietf.org/doc/html/rfc7517). JSON Web Key
-* 

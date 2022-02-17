@@ -1,4 +1,4 @@
-package oauth2go
+package oauth2
 
 import (
 	"crypto/ecdsa"
@@ -16,27 +16,15 @@ import (
 	"golang.org/x/oauth2"
 )
 
-type server struct {
+// AuthorizationServer is an OAuth 2.0 authorization server
+type AuthorizationServer struct {
 	http.Server
 
 	// our clients
-	clients []*client
-
-	// our users
-	users []*user
+	clients []*Client
 
 	// our signing key
 	signingKey *ecdsa.PrivateKey
-}
-
-type user struct {
-	name     string
-	password string
-}
-
-type client struct {
-	clientID     string
-	clientSecret string
 }
 
 // JSONWebKey is a JSON Web Key that only supports elliptic curve keys for now.
@@ -50,36 +38,26 @@ type JSONWebKey struct {
 	Y string `json:"y"`
 }
 
-type ServerOption func(srv *server)
+type AuthorizationServerOption func(srv *AuthorizationServer)
 
-func WithUser(name string, password string) ServerOption {
-	return func(srv *server) {
-		srv.users = append(srv.users, &user{
-			name:     name,
-			password: password,
-		})
-	}
-}
-
-func WithClient(clientID string, clientSecret string) ServerOption {
-	return func(srv *server) {
-		srv.clients = append(srv.clients, &client{
+func WithClient(clientID string, clientSecret string) AuthorizationServerOption {
+	return func(srv *AuthorizationServer) {
+		srv.clients = append(srv.clients, &Client{
 			clientID:     clientID,
 			clientSecret: clientSecret,
 		})
 	}
 }
 
-func NewServer(addr string, opts ...ServerOption) *server {
+func NewServer(addr string, opts ...AuthorizationServerOption) *AuthorizationServer {
 	mux := http.NewServeMux()
 
-	srv := &server{
+	srv := &AuthorizationServer{
 		Server: http.Server{
 			Handler: mux,
 			Addr:    addr,
 		},
-		clients: []*client{},
-		users:   []*user{},
+		clients: []*Client{},
 	}
 
 	for _, o := range opts {
@@ -95,7 +73,7 @@ func NewServer(addr string, opts ...ServerOption) *server {
 	return srv
 }
 
-func (srv *server) handleToken(w http.ResponseWriter, r *http.Request) {
+func (srv *AuthorizationServer) handleToken(w http.ResponseWriter, r *http.Request) {
 	var err error
 
 	if r.Method != "POST" {
@@ -113,25 +91,25 @@ func (srv *server) handleToken(w http.ResponseWriter, r *http.Request) {
 	case "client_credentials":
 		srv.doClientCredentialsFlow(w, r)
 	default:
-		writeError(w, 400, "unsupported_grant_type")
+		Error(w, "unsupported_grant_type", http.StatusBadRequest)
 		return
 	}
 }
 
 // doClientCredentialsFlow implements the Client Credentials Grant
 // flow (see https://datatracker.ietf.org/doc/html/rfc6749#section-4.4).
-func (srv *server) doClientCredentialsFlow(w http.ResponseWriter, r *http.Request) {
+func (srv *AuthorizationServer) doClientCredentialsFlow(w http.ResponseWriter, r *http.Request) {
 	var (
 		err    error
 		token  oauth2.Token
-		client *client
+		client *Client
 		expiry time.Time
 	)
 
 	// Retrieve the client
 	if client, err = srv.retrieveClient(r); err != nil {
 		w.Header().Set("WWW-Authenticate", "Basic")
-		writeError(w, 401, "invalid_client")
+		Error(w, "invalid_client", http.StatusUnauthorized)
 		return
 	}
 
@@ -147,15 +125,16 @@ func (srv *server) doClientCredentialsFlow(w http.ResponseWriter, r *http.Reques
 	token.TokenType = "Bearer"
 	token.Expiry = expiry
 	if token.AccessToken, err = t.SignedString(srv.signingKey); err != nil {
-		writeError(w, 500, "error while creating JWT")
+		http.Error(w, "error while creating JWT", http.StatusInternalServerError)
+		return
 	}
 
 	writeJSON(w, &token)
 }
 
-func (srv *server) handleJWKS(w http.ResponseWriter, r *http.Request) {
+func (srv *AuthorizationServer) handleJWKS(w http.ResponseWriter, r *http.Request) {
 	if r.Method != "GET" {
-		writeError(w, 405, "method not allowed")
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
 
@@ -175,7 +154,7 @@ func (srv *server) handleJWKS(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, &keySet)
 }
 
-func (srv *server) retrieveClient(r *http.Request) (*client, error) {
+func (srv *AuthorizationServer) retrieveClient(r *http.Request) (*Client, error) {
 	var (
 		idx           int
 		b             []byte
@@ -215,18 +194,17 @@ func (srv *server) retrieveClient(r *http.Request) (*client, error) {
 	return nil, errors.New("no matching client")
 }
 
-func writeError(w http.ResponseWriter, statusCode int, error string) {
+func Error(w http.ResponseWriter, error string, statusCode int) {
 	w.Header().Set("Content-Type", "application/json")
 
-	w.WriteHeader(statusCode)
-	w.Write([]byte(fmt.Sprintf(`{"error": "%s"}`, error)))
+	http.Error(w, fmt.Sprintf(`{"error": "%s"}`, error), statusCode)
 }
 
 func writeJSON(w http.ResponseWriter, value interface{}) {
 	w.Header().Set("Content-Type", "application/json")
 
 	if err := json.NewEncoder(w).Encode(value); err != nil {
-		writeError(w, 500, "could not encode JSON")
+		Error(w, "could not encode JSON", http.StatusInternalServerError)
 		return
 	}
 }
