@@ -1,4 +1,4 @@
-package oauth2go
+package oauth2
 
 import (
 	"context"
@@ -13,11 +13,10 @@ import (
 	"golang.org/x/oauth2/clientcredentials"
 )
 
-func Test_server_handleToken(t *testing.T) {
+func TestAuthorizationServer_handleToken(t *testing.T) {
 	type fields struct {
 		Server     http.Server
-		clients    []*client
-		users      []*user
+		clients    []*Client
 		signingKey *ecdsa.PrivateKey
 	}
 	type args struct {
@@ -33,10 +32,9 @@ func Test_server_handleToken(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			srv := &server{
+			srv := &AuthorizationServer{
 				Server:     tt.fields.Server,
 				clients:    tt.fields.clients,
-				users:      tt.fields.users,
 				signingKey: tt.fields.signingKey,
 			}
 			srv.handleToken(tt.args.w, tt.args.r)
@@ -45,7 +43,7 @@ func Test_server_handleToken(t *testing.T) {
 }
 
 func TestIntegration(t *testing.T) {
-	srv := NewServer(":0", WithUser("admin", "admin"), WithClient("client", "secret"))
+	srv := NewServer(":0", WithClient("client", "secret"))
 	ln, err := net.Listen("tcp", srv.Addr)
 	if err != nil {
 		t.Errorf("Error while listening key: %v", err)
