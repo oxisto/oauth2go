@@ -14,6 +14,7 @@ import (
 	"html/template"
 	"log"
 	"net/http"
+	"path"
 	"sync"
 	"time"
 
@@ -70,6 +71,9 @@ type handler struct {
 	users []*User
 
 	log oauth2.Logger
+
+	// the base url of our authentication server
+	baseURL string
 }
 
 type User struct {
@@ -81,6 +85,7 @@ func NewHandler() *handler {
 	h := &handler{
 		sessions: map[string]*session{},
 		users:    []*User{},
+		baseURL:  "/",
 	}
 
 	if h.log == nil {
@@ -130,6 +135,11 @@ func (h *handler) removeSession(id string) {
 	delete(h.sessions, id)
 }
 
+// doLoginGet handles the /login endpoint if called with the GET method. It returns
+// an HTML-based login form, if no session exists, a session is invalid or a previous
+// failure was indicated.
+//
+// If successful, it redirects to the base url.
 func (h *handler) doLoginGet(w http.ResponseWriter, r *http.Request) {
 	var (
 		err     error
@@ -138,11 +148,19 @@ func (h *handler) doLoginGet(w http.ResponseWriter, r *http.Request) {
 		session *session
 	)
 
+	// Before any other checks, check if we have an indication that we were redirected
+	// here because of a failure
+	if _, ok = r.URL.Query()["failed"]; ok {
+		// We display the login page with an error message
+		h.handleLoginPage(w, r, "Invalid credentials")
+		return
+	}
+
 	// Check, if we have have a cookie
 	cookie, err = r.Cookie("id")
 	if err != nil {
 		// Regardless of the error, we display the login page
-		h.handleLoginPage(w, r)
+		h.handleLoginPage(w, r, "")
 		return
 	}
 
@@ -153,29 +171,31 @@ func (h *handler) doLoginGet(w http.ResponseWriter, r *http.Request) {
 
 	if !ok {
 		// No session, so we display the login page
-		h.handleLoginPage(w, r)
+		h.handleLoginPage(w, r, "")
 		return
 	}
 
 	if session.Expired() {
 		// Session is expired, so we remove it from our list and also display the login page
 		h.removeSession(session.ID)
-		h.handleLoginPage(w, r)
+		h.handleLoginPage(w, r, "")
 		return
 	}
 
 	// Seems like we have a valid session. Woohoo. Nothing to do except redirecting
-	http.Redirect(w, r, "/", http.StatusSeeOther)
+	http.Redirect(w, r, h.baseURL, http.StatusSeeOther)
 }
 
-func (h *handler) handleLoginPage(w http.ResponseWriter, r *http.Request) {
+func (h *handler) handleLoginPage(w http.ResponseWriter, r *http.Request, error string) {
 	var tmpl, err = template.ParseFS(files, "login.html")
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
 
-	err = tmpl.Execute(w, map[string]interface{}{})
+	err = tmpl.Execute(w, map[string]interface{}{
+		"ErrorMessage": error,
+	})
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
@@ -191,8 +211,10 @@ func (h *handler) doLoginPost(w http.ResponseWriter, r *http.Request) {
 
 	user := h.user(r.FormValue("username"), r.FormValue("password"))
 	if user == nil {
-		// TODO(oxisto): Redirect back to login page?
-		http.Error(w, "invalid credentials", http.StatusUnauthorized)
+		url := path.Join(h.baseURL, "/login?failed")
+
+		// Redirect back to login page (but with an error message)
+		http.Redirect(w, r, url, http.StatusSeeOther)
 		return
 	}
 
@@ -202,7 +224,7 @@ func (h *handler) doLoginPost(w http.ResponseWriter, r *http.Request) {
 	c := http.Cookie{
 		Name:    "id",
 		Value:   session.ID,
-		Path:    "/",
+		Path:    h.baseURL,
 		Expires: session.ExpireAt,
 	}
 
@@ -210,7 +232,8 @@ func (h *handler) doLoginPost(w http.ResponseWriter, r *http.Request) {
 
 	h.log.Printf("Generating new session with id %s", session.ID)
 
-	http.Redirect(w, r, "/", http.StatusSeeOther)
+	// Everything good, lets redirect to the base URL
+	http.Redirect(w, r, h.baseURL, http.StatusSeeOther)
 }
 
 func (h *handler) user(username string, password string) *User {

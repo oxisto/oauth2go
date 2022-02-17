@@ -12,6 +12,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -35,6 +36,19 @@ func Test_handler_doLoginGet(t *testing.T) {
 		wantCode int
 		wantBody string
 	}{
+		{
+			name: "Login failed",
+			fields: fields{
+				sessions: map[string]*session{},
+			},
+			args: args{
+				r: &http.Request{
+					URL: &url.URL{Host: "localhost:8080", Path: "/login", RawQuery: "failed"},
+				},
+			},
+			wantCode: http.StatusOK,
+			wantBody: "Invalid",
+		},
 		{
 			name: "No cookie",
 			fields: fields{
@@ -119,6 +133,7 @@ func Test_handler_doLoginGet(t *testing.T) {
 				sessions: tt.fields.sessions,
 				users:    tt.fields.users,
 				log:      tt.fields.log,
+				baseURL:  "/",
 			}
 
 			rr := httptest.NewRecorder()
@@ -130,10 +145,8 @@ func Test_handler_doLoginGet(t *testing.T) {
 			}
 
 			gotBody := rr.Body.String()
-			if tt.wantBody != "" && strings.Contains(gotBody, tt.wantBody) {
-				if gotCode != tt.wantCode {
-					t.Errorf("handler.doLoginGet() = %v, want %v", gotBody, tt.wantBody)
-				}
+			if tt.wantBody != "" && !strings.Contains(gotBody, tt.wantBody) {
+				t.Errorf("handler.doLoginGet() = %v, want %v", gotBody, tt.wantBody)
 			}
 		})
 	}
@@ -149,10 +162,12 @@ func Test_handler_doLoginPost(t *testing.T) {
 		r *http.Request
 	}
 	tests := []struct {
-		name     string
-		fields   fields
-		args     args
-		wantCode int
+		name       string
+		fields     fields
+		args       args
+		wantCode   int
+		wantHeader http.Header
+		wantCookie bool
 	}{
 		{
 			name: "Existing user",
@@ -174,6 +189,10 @@ func Test_handler_doLoginPost(t *testing.T) {
 				},
 			},
 			wantCode: http.StatusSeeOther,
+			wantHeader: http.Header{
+				http.CanonicalHeaderKey("Location"): []string{"/"},
+			},
+			wantCookie: true,
 		},
 		{
 			name: "Invalid credentials",
@@ -194,7 +213,10 @@ func Test_handler_doLoginPost(t *testing.T) {
 					},
 				},
 			},
-			wantCode: http.StatusUnauthorized,
+			wantCode: http.StatusSeeOther,
+			wantHeader: http.Header{
+				http.CanonicalHeaderKey("Location"): []string{"/login?failed"},
+			},
 		},
 	}
 
@@ -204,6 +226,7 @@ func Test_handler_doLoginPost(t *testing.T) {
 				sessions: tt.fields.sessions,
 				users:    tt.fields.users,
 				log:      tt.fields.log,
+				baseURL:  "/",
 			}
 
 			rr := httptest.NewRecorder()
@@ -212,6 +235,21 @@ func Test_handler_doLoginPost(t *testing.T) {
 			gotCode := rr.Code
 			if gotCode != tt.wantCode {
 				t.Errorf("handler.doLoginPost() = %v, want %v", gotCode, tt.wantCode)
+			}
+
+			gotHeader := rr.Header()
+			_, ok := gotHeader["Set-Cookie"]
+
+			if tt.wantCookie != ok {
+				t.Errorf("handler.doLoginPost() = %v, want %v", ok, tt.wantCookie)
+			}
+
+			// We cannot compare the cookie, because it contains a random ID so we nil it out
+			// and checked for its existence before
+			delete(gotHeader, "Set-Cookie")
+
+			if tt.wantHeader != nil && !reflect.DeepEqual(gotHeader, tt.wantHeader) {
+				t.Errorf("handler.doLoginPost() = %v, want %v", gotHeader, tt.wantHeader)
 			}
 		})
 	}
