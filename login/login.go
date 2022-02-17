@@ -163,6 +163,8 @@ func (h *handler) doLoginGet(w http.ResponseWriter, r *http.Request) {
 	if session.Expired() {
 		// Session is expired, so we remove it from our list and also display the login page
 		h.removeSession(session.ID)
+		h.handleLoginPage(w, r)
+		return
 	}
 
 	// Seems like we have a valid session. Woohoo. Nothing to do except redirecting
