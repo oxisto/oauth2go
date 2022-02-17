@@ -7,6 +7,9 @@ import (
 	"log"
 	"net"
 	"net/http"
+	"net/http/httptest"
+	"reflect"
+	"strings"
 	"testing"
 
 	"github.com/golang-jwt/jwt/v4"
@@ -20,24 +23,39 @@ func TestAuthorizationServer_handleToken(t *testing.T) {
 		signingKey *ecdsa.PrivateKey
 	}
 	type args struct {
-		w http.ResponseWriter
 		r *http.Request
 	}
 	tests := []struct {
-		name   string
-		fields fields
-		args   args
+		name     string
+		fields   fields
+		args     args
+		wantBody string
 	}{
-		// TODO: Add test cases.
+		{
+			name: "unsupported grant",
+			args: args{
+				r: &http.Request{
+					Method: "POST",
+				},
+			},
+			wantBody: `{"error": "unsupported_grant_type"}`,
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			rr := httptest.NewRecorder()
+
 			srv := &AuthorizationServer{
 				Server:     tt.fields.Server,
 				clients:    tt.fields.clients,
 				signingKey: tt.fields.signingKey,
 			}
-			srv.handleToken(tt.args.w, tt.args.r)
+			srv.handleToken(rr, tt.args.r)
+
+			gotBody := strings.Trim(rr.Body.String(), "\n")
+			if gotBody != tt.wantBody {
+				t.Errorf("AuthorizationServer.handleToken() = %v, want %v", gotBody, tt.wantBody)
+			}
 		})
 	}
 }
@@ -73,4 +91,41 @@ func TestIntegration(t *testing.T) {
 	}
 
 	log.Printf("JWT: %+v", jwtoken)
+}
+
+func TestAuthorizationServer_retrieveClient(t *testing.T) {
+	type fields struct {
+		Server     http.Server
+		clients    []*Client
+		signingKey *ecdsa.PrivateKey
+	}
+	type args struct {
+		r *http.Request
+	}
+	tests := []struct {
+		name    string
+		fields  fields
+		args    args
+		want    *Client
+		wantErr bool
+	}{
+		// TODO: Add test cases.
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			srv := &AuthorizationServer{
+				Server:     tt.fields.Server,
+				clients:    tt.fields.clients,
+				signingKey: tt.fields.signingKey,
+			}
+			got, err := srv.retrieveClient(tt.args.r)
+			if (err != nil) != tt.wantErr {
+				t.Errorf("AuthorizationServer.retrieveClient() error = %v, wantErr %v", err, tt.wantErr)
+				return
+			}
+			if !reflect.DeepEqual(got, tt.want) {
+				t.Errorf("AuthorizationServer.retrieveClient() = %v, want %v", got, tt.want)
+			}
+		})
+	}
 }
