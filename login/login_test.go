@@ -141,12 +141,12 @@ func Test_handler_doLoginGet(t *testing.T) {
 
 			gotCode := rr.Code
 			if gotCode != tt.wantCode {
-				t.Errorf("handler.doLoginGet() = %v, want %v", gotCode, tt.wantCode)
+				t.Errorf("handler.doLoginGet() code = %v, wantCode %v", gotCode, tt.wantCode)
 			}
 
 			gotBody := rr.Body.String()
 			if tt.wantBody != "" && !strings.Contains(gotBody, tt.wantBody) {
-				t.Errorf("handler.doLoginGet() = %v, want %v", gotBody, tt.wantBody)
+				t.Errorf("handler.doLoginGet() body = %v, wantBody %v", gotBody, tt.wantBody)
 			}
 		})
 	}
@@ -234,14 +234,14 @@ func Test_handler_doLoginPost(t *testing.T) {
 
 			gotCode := rr.Code
 			if gotCode != tt.wantCode {
-				t.Errorf("handler.doLoginPost() = %v, want %v", gotCode, tt.wantCode)
+				t.Errorf("handler.doLoginPost() code = %v, wantCode %v", gotCode, tt.wantCode)
 			}
 
 			gotHeader := rr.Header()
 			_, ok := gotHeader["Set-Cookie"]
 
 			if tt.wantCookie != ok {
-				t.Errorf("handler.doLoginPost() = %v, want %v", ok, tt.wantCookie)
+				t.Errorf("handler.doLoginPost() ok = %v, wantCookie %v", ok, tt.wantCookie)
 			}
 
 			// We cannot compare the cookie, because it contains a random ID so we nil it out
@@ -249,7 +249,7 @@ func Test_handler_doLoginPost(t *testing.T) {
 			delete(gotHeader, "Set-Cookie")
 
 			if tt.wantHeader != nil && !reflect.DeepEqual(gotHeader, tt.wantHeader) {
-				t.Errorf("handler.doLoginPost() = %v, want %v", gotHeader, tt.wantHeader)
+				t.Errorf("handler.doLoginPost() header = %v, wantHeader %v", gotHeader, tt.wantHeader)
 			}
 		})
 	}

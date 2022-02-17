@@ -54,7 +54,7 @@ func TestAuthorizationServer_handleToken(t *testing.T) {
 
 			gotBody := strings.Trim(rr.Body.String(), "\n")
 			if gotBody != tt.wantBody {
-				t.Errorf("AuthorizationServer.handleToken() = %v, want %v", gotBody, tt.wantBody)
+				t.Errorf("AuthorizationServer.handleToken() body = %v, wantBody %v", gotBody, tt.wantBody)
 			}
 		})
 	}
@@ -109,7 +109,68 @@ func TestAuthorizationServer_retrieveClient(t *testing.T) {
 		want    *Client
 		wantErr bool
 	}{
-		// TODO: Add test cases.
+		{
+			name: "Missing authorization",
+			args: args{
+				r: &http.Request{},
+			},
+			wantErr: true,
+		},
+		{
+			name: "No base64 basic authorization",
+			args: args{
+				r: &http.Request{
+					Header: http.Header{
+						http.CanonicalHeaderKey("Authorization"): []string{"Basic nothing"},
+					},
+				},
+			},
+			wantErr: true,
+		},
+		{
+			name: "Wrong basic authorization",
+			args: args{
+				r: &http.Request{
+					Header: http.Header{
+						http.CanonicalHeaderKey("Authorization"): []string{"Basic bm90aGluZw=="},
+					},
+				},
+			},
+			wantErr: true,
+		},
+		{
+			name: "Invalid client credentials",
+			args: args{
+				r: &http.Request{
+					Header: http.Header{
+						http.CanonicalHeaderKey("Authorization"): []string{"Basic Y2xpZW50Om5vdHNlY3JldA=="},
+					},
+				},
+			},
+			wantErr: true,
+		},
+		{
+			name: "Valid client credentials",
+			fields: fields{
+				clients: []*Client{
+					{
+						clientID:     "client",
+						clientSecret: "secret",
+					},
+				},
+			},
+			args: args{
+				r: &http.Request{
+					Header: http.Header{
+						http.CanonicalHeaderKey("Authorization"): []string{"Basic Y2xpZW50OnNlY3JldA=="},
+					},
+				},
+			},
+			want: &Client{
+				clientID:     "client",
+				clientSecret: "secret",
+			},
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
