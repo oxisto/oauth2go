@@ -236,7 +236,7 @@ func (h *handler) user(username string, password string) *User {
 
 	// Look for username and password
 	for _, u := range h.users {
-		if u.Name == username && h.pwh.CompareHashAndPassword(u.PasswordHash, password) == nil {
+		if u.Name == username && h.pwh.CompareHashAndPassword([]byte(u.PasswordHash), []byte(password)) == nil {
 			return u
 		}
 	}

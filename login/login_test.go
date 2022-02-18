@@ -164,7 +164,7 @@ func Test_handler_doLoginGet(t *testing.T) {
 }
 
 func Test_handler_doLoginPost(t *testing.T) {
-	var hash, _ = bcryptHasher{}.GenerateFromPassword("admin", bcrypt.DefaultCost)
+	var hash, _ = bcryptHasher{}.GenerateFromPassword([]byte("admin"), bcrypt.DefaultCost)
 
 	type fields struct {
 		sessions map[string]*session
