@@ -258,11 +258,11 @@ func Test_writeJSON(t *testing.T) {
 		{
 			name: "stream error",
 			args: args{
-				w: &errorResponseWriter{WriteError: errors.New("some error")},
+				w: &mockResponseWriter{WriteError: errors.New("some error")},
 			},
 			want: func(t *testing.T, w http.ResponseWriter) {
 				wantCode := http.StatusInternalServerError
-				gotCode := w.(*errorResponseWriter).Result().StatusCode
+				gotCode := w.(*mockResponseWriter).Result().StatusCode
 				if gotCode != wantCode {
 					t.Errorf("AuthorizationServer.writeJSON() code = %v, wantCode %v", gotCode, wantCode)
 				}
@@ -372,25 +372,4 @@ func TestAuthorizationServer_doClientCredentialsFlow(t *testing.T) {
 			}
 		})
 	}
-}
-
-type errorResponseWriter struct {
-	http.Response
-	WriteError error
-}
-
-func (errorResponseWriter) Header() http.Header {
-	return http.Header{}
-}
-
-func (e *errorResponseWriter) Write([]byte) (int, error) {
-	return 0, e.WriteError
-}
-
-func (e *errorResponseWriter) WriteHeader(statusCode int) {
-	e.StatusCode = statusCode
-}
-
-func (m *errorResponseWriter) Result() *http.Response {
-	return &m.Response
 }

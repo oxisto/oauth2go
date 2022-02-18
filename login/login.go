@@ -12,6 +12,7 @@ import (
 	"embed"
 	"encoding/base64"
 	"html/template"
+	"io/fs"
 	"log"
 	"net/http"
 	"path"
@@ -22,7 +23,7 @@ import (
 )
 
 //go:embed login.html
-var files embed.FS
+var embedFS embed.FS
 
 // session describes a currently active login session for a particular user
 type session struct {
@@ -53,6 +54,8 @@ type handler struct {
 	baseURL string
 
 	pwh PasswordHasher
+
+	files fs.FS
 }
 
 // User represents a user in our authentication server. It has a unique name
@@ -72,6 +75,8 @@ func NewHandler() *handler {
 		baseURL:  "/",
 		pwh:      bcryptHasher{},
 	}
+
+	h.files = embedFS
 
 	if h.log == nil {
 		h.log = log.Default()
@@ -172,7 +177,7 @@ func (h *handler) doLoginGet(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *handler) handleLoginPage(w http.ResponseWriter, r *http.Request, error string) {
-	var tmpl, err = template.ParseFS(files, "login.html")
+	var tmpl, err = template.ParseFS(h.files, "login.html")
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
