@@ -1,19 +1,16 @@
 package oauth2
 
 import (
-	"context"
 	"crypto/ecdsa"
-	"fmt"
-	"log"
-	"net"
+	"crypto/elliptic"
+	"encoding/json"
+	"errors"
+	"math/big"
 	"net/http"
 	"net/http/httptest"
 	"reflect"
 	"strings"
 	"testing"
-
-	"github.com/golang-jwt/jwt/v4"
-	"golang.org/x/oauth2/clientcredentials"
 )
 
 func TestAuthorizationServer_handleToken(t *testing.T) {
@@ -31,6 +28,14 @@ func TestAuthorizationServer_handleToken(t *testing.T) {
 		args     args
 		wantBody string
 	}{
+		{
+			name: "wrong method",
+			args: args{
+				r: &http.Request{
+					Method: "GET",
+				},
+			},
+		},
 		{
 			name: "unsupported grant",
 			args: args{
@@ -58,39 +63,6 @@ func TestAuthorizationServer_handleToken(t *testing.T) {
 			}
 		})
 	}
-}
-
-func TestIntegration(t *testing.T) {
-	srv := NewServer(":0", WithClient("client", "secret"))
-	ln, err := net.Listen("tcp", srv.Addr)
-	if err != nil {
-		t.Errorf("Error while listening key: %v", err)
-	}
-
-	go srv.Serve(ln)
-	defer srv.Close()
-
-	config := clientcredentials.Config{
-		ClientID:     "client",
-		ClientSecret: "secret",
-		TokenURL:     fmt.Sprintf("http://localhost:%d/token", ln.Addr().(*net.TCPAddr).Port),
-	}
-
-	token, err := config.Token(context.Background())
-	if err != nil {
-		t.Errorf("Error while retrieving a token: %v", err)
-	}
-
-	log.Printf("Token: %s", token.AccessToken)
-
-	jwtoken, err := jwt.ParseWithClaims(token.AccessToken, &jwt.RegisteredClaims{}, func(t *jwt.Token) (interface{}, error) {
-		return &srv.signingKey.PublicKey, nil
-	})
-	if err != nil {
-		t.Errorf("Error while retrieving a token: %v", err)
-	}
-
-	log.Printf("JWT: %+v", jwtoken)
 }
 
 func TestAuthorizationServer_retrieveClient(t *testing.T) {
@@ -189,4 +161,140 @@ func TestAuthorizationServer_retrieveClient(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestAuthorizationServer_handleJWKS(t *testing.T) {
+	type fields struct {
+		Server     http.Server
+		clients    []*Client
+		signingKey *ecdsa.PrivateKey
+	}
+	type args struct {
+		r *http.Request
+	}
+	tests := []struct {
+		name     string
+		fields   fields
+		args     args
+		want     *JSONWebKeySet
+		wantCode int
+	}{
+		{
+			name: "retrieve JWKS with GET",
+			fields: fields{
+				signingKey: &ecdsa.PrivateKey{
+					PublicKey: ecdsa.PublicKey{
+						Curve: elliptic.P256(),
+						X:     big.NewInt(1),
+						Y:     big.NewInt(2),
+					},
+				},
+			},
+			args: args{
+				r: httptest.NewRequest("GET", "/.well-known/jwks.json", nil),
+			},
+			want: &JSONWebKeySet{
+				Keys: []JSONWebKey{{
+					Kid: "1",
+					Kty: "EC",
+					X:   "AQ",
+					Y:   "Ag",
+				}},
+			},
+			wantCode: 200,
+		},
+		{
+			name:   "retrieve JWKS with POST",
+			fields: fields{},
+			args: args{
+				r: httptest.NewRequest("POST", "/.well-known/jwks.json", nil),
+			},
+			want:     nil,
+			wantCode: 405,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			srv := &AuthorizationServer{
+				Server:     tt.fields.Server,
+				clients:    tt.fields.clients,
+				signingKey: tt.fields.signingKey,
+			}
+
+			rr := httptest.NewRecorder()
+			srv.handleJWKS(rr, tt.args.r)
+
+			gotCode := rr.Code
+			if gotCode != tt.wantCode {
+				t.Errorf("handler.doLoginPost() code = %v, wantCode %v", gotCode, tt.wantCode)
+			}
+
+			if rr.Code == 200 {
+				var got JSONWebKeySet
+				err := json.Unmarshal(rr.Body.Bytes(), &got)
+				if err != nil {
+					panic(err)
+				}
+
+				if !reflect.DeepEqual(&got, tt.want) {
+					t.Errorf("AuthorizationServer.handleJWKS() = %v, want %v", got, tt.want)
+				}
+			}
+		})
+	}
+}
+
+func Test_writeJSON(t *testing.T) {
+	type args struct {
+		w     http.ResponseWriter
+		value interface{}
+	}
+	tests := []struct {
+		name string
+		args args
+		want func(t *testing.T, w http.ResponseWriter)
+	}{
+		{
+			name: "stream error",
+			args: args{
+				w: &errorResponseWriter{},
+			},
+			want: func(t *testing.T, w http.ResponseWriter) {
+				wantCode := 500
+				gotCode := w.(*errorResponseWriter).Result().StatusCode
+				if gotCode != wantCode {
+					t.Errorf("handler.doLoginPost() code = %v, wantCode %v", gotCode, wantCode)
+				}
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			writeJSON(tt.args.w, tt.args.value)
+
+			tt.want(t, tt.args.w)
+		})
+	}
+}
+
+type errorResponseWriter struct {
+	http.Response
+}
+
+func (errorResponseWriter) Header() http.Header {
+	return http.Header{}
+}
+
+func (errorResponseWriter) Write([]byte) (int, error) {
+	return 0, errors.New("some error")
+}
+
+func (m *errorResponseWriter) WriteHeader(statusCode int) {
+	m.StatusCode = statusCode
+}
+
+func (m *errorResponseWriter) Result() *http.Response {
+	return &m.Response
 }
