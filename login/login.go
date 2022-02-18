@@ -222,10 +222,13 @@ func (h *handler) doLoginPost(w http.ResponseWriter, r *http.Request) {
 	session := h.newSession(user)
 
 	c := http.Cookie{
-		Name:    "id",
-		Value:   session.ID,
-		Path:    h.baseURL,
-		Expires: session.ExpireAt,
+		Name:     "id",
+		Value:    session.ID,
+		Path:     h.baseURL,
+		Expires:  session.ExpireAt,
+		SameSite: http.SameSiteLaxMode,
+		Secure:   true,
+		HttpOnly: true,
 	}
 
 	http.SetCookie(w, &c)
