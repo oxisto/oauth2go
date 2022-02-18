@@ -261,3 +261,65 @@ func Test_handler_doLoginPost(t *testing.T) {
 		})
 	}
 }
+
+func Test_handler_ServeHTTP(t *testing.T) {
+	type fields struct {
+		sessions map[string]*session
+		users    []*User
+		log      oauth2.Logger
+		baseURL  string
+		pwh      PasswordHasher
+	}
+	type args struct {
+		r *http.Request
+	}
+	tests := []struct {
+		name     string
+		fields   fields
+		args     args
+		wantCode int
+	}{
+		{
+			name:   "GET request",
+			fields: fields{},
+			args: args{
+				r: &http.Request{
+					Method: "GET",
+					URL:    &url.URL{Path: "/login"},
+				},
+			},
+			wantCode: 200,
+		},
+		{
+			name:   "POST request",
+			fields: fields{},
+			args: args{
+				r: &http.Request{
+					Method: "POST",
+					URL:    &url.URL{Path: "/login"},
+				},
+			},
+			wantCode: 500, // because this request is highly invalid
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			h := &handler{
+				sessions: tt.fields.sessions,
+				users:    tt.fields.users,
+				log:      tt.fields.log,
+				baseURL:  tt.fields.baseURL,
+				pwh:      tt.fields.pwh,
+			}
+
+			rr := httptest.NewRecorder()
+			h.ServeHTTP(rr, tt.args.r)
+
+			gotCode := rr.Code
+			if tt.wantCode != gotCode {
+				t.Errorf("handler.doLoginPost() header = %v, wantHeader %v", gotCode, tt.wantCode)
+			}
+		})
+	}
+}
