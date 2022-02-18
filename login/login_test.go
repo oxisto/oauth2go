@@ -386,9 +386,11 @@ func Test_handler_handleLoginPage(t *testing.T) {
 			wantBody: "template: login.html:1: unclosed action",
 		},
 		{
-			name: "valid template",
+			name: "valid template without errors",
 			args: args{
-				w: httptest.NewRecorder(),
+				w: &mock.MockResponseRecorder{
+					ResponseRecorder: httptest.NewRecorder(),
+				},
 			},
 			fields: fields{
 				files: &mockFS{File: &mockFile{content: "test"}},
@@ -399,7 +401,7 @@ func Test_handler_handleLoginPage(t *testing.T) {
 		{
 			name: "valid template with error while writing",
 			args: args{
-				w: &mock.ErrorResponseRecorder{
+				w: &mock.MockResponseRecorder{
 					ResponseRecorder: httptest.NewRecorder(),
 					WriteError:       errors.New("some error"),
 				},
@@ -428,7 +430,7 @@ func Test_handler_handleLoginPage(t *testing.T) {
 			switch v := tt.args.w.(type) {
 			case *httptest.ResponseRecorder:
 				rr = v
-			case *mock.ErrorResponseRecorder:
+			case *mock.MockResponseRecorder:
 				rr = v.ResponseRecorder
 			}
 

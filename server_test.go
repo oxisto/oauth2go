@@ -260,7 +260,7 @@ func Test_writeJSON(t *testing.T) {
 		{
 			name: "stream error",
 			args: args{
-				w: &mock.ErrorResponseRecorder{
+				w: &mock.MockResponseRecorder{
 					ResponseRecorder: httptest.NewRecorder(),
 					WriteError:       errors.New("some error"),
 				},
@@ -277,7 +277,7 @@ func Test_writeJSON(t *testing.T) {
 			switch v := tt.args.w.(type) {
 			case *httptest.ResponseRecorder:
 				rr = v
-			case *mock.ErrorResponseRecorder:
+			case *mock.MockResponseRecorder:
 				rr = v.ResponseRecorder
 			}
 

@@ -243,3 +243,11 @@ func (h *handler) user(username string, password string) *User {
 
 	return nil
 }
+
+func GeneratePassword() string {
+	b := make([]byte, 32)
+
+	rand.Read(b)
+
+	return base64.StdEncoding.EncodeToString(b)
+}
