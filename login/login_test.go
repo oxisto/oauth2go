@@ -154,12 +154,13 @@ func Test_handler_doLoginGet(t *testing.T) {
 }
 
 func Test_handler_doLoginPost(t *testing.T) {
-	var hash, _ = bcrypt.GenerateFromPassword([]byte("admin"), bcrypt.DefaultCost)
+	var hash, _ = bcryptHasher{}.GenerateFromPassword("admin", bcrypt.DefaultCost)
 
 	type fields struct {
 		sessions map[string]*session
 		users    []*User
 		log      oauth2.Logger
+		pwh      PasswordHasher
 	}
 	type args struct {
 		r *http.Request
@@ -177,9 +178,10 @@ func Test_handler_doLoginPost(t *testing.T) {
 			fields: fields{
 				sessions: make(map[string]*session),
 				users: []*User{
-					{Name: "admin", Password: string(hash)},
+					{Name: "admin", PasswordHash: string(hash)},
 				},
 				log: log.Default(),
+				pwh: bcryptHasher{},
 			},
 			args: args{
 				r: &http.Request{
@@ -202,9 +204,10 @@ func Test_handler_doLoginPost(t *testing.T) {
 			fields: fields{
 				sessions: make(map[string]*session),
 				users: []*User{
-					{Name: "admin", Password: string(hash)},
+					{Name: "admin", PasswordHash: string(hash)},
 				},
 				log: log.Default(),
+				pwh: bcryptHasher{},
 			},
 			args: args{
 				r: &http.Request{
@@ -229,6 +232,7 @@ func Test_handler_doLoginPost(t *testing.T) {
 				sessions: tt.fields.sessions,
 				users:    tt.fields.users,
 				log:      tt.fields.log,
+				pwh:      tt.fields.pwh,
 				baseURL:  "/",
 			}
 
