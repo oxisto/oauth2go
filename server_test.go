@@ -104,7 +104,7 @@ func TestAuthorizationServer_retrieveClient(t *testing.T) {
 			args: args{
 				r: &http.Request{
 					Header: http.Header{
-						http.CanonicalHeaderKey("Authorization"): []string{"Basic bm90aGluZw=="},
+						http.CanonicalHeaderKey("Authorization"): []string{"Basic bm90aGluZw=="}, // nothing
 					},
 				},
 			},
@@ -115,7 +115,7 @@ func TestAuthorizationServer_retrieveClient(t *testing.T) {
 			args: args{
 				r: &http.Request{
 					Header: http.Header{
-						http.CanonicalHeaderKey("Authorization"): []string{"Basic Y2xpZW50Om5vdHNlY3JldA=="},
+						http.CanonicalHeaderKey("Authorization"): []string{"Basic Y2xpZW50Om5vdHNlY3JldA=="}, // client:notsecret
 					},
 				},
 			},
@@ -134,7 +134,7 @@ func TestAuthorizationServer_retrieveClient(t *testing.T) {
 			args: args{
 				r: &http.Request{
 					Header: http.Header{
-						http.CanonicalHeaderKey("Authorization"): []string{"Basic Y2xpZW50OnNlY3JldA=="},
+						http.CanonicalHeaderKey("Authorization"): []string{"Basic Y2xpZW50OnNlY3JldA=="}, // client:secret
 					},
 				},
 			},
@@ -201,7 +201,7 @@ func TestAuthorizationServer_handleJWKS(t *testing.T) {
 					Y:   "Ag",
 				}},
 			},
-			wantCode: 200,
+			wantCode: http.StatusOK,
 		},
 		{
 			name:   "retrieve JWKS with POST",
@@ -210,7 +210,7 @@ func TestAuthorizationServer_handleJWKS(t *testing.T) {
 				r: httptest.NewRequest("POST", "/.well-known/jwks.json", nil),
 			},
 			want:     nil,
-			wantCode: 405,
+			wantCode: http.StatusMethodNotAllowed,
 		},
 	}
 
@@ -227,10 +227,10 @@ func TestAuthorizationServer_handleJWKS(t *testing.T) {
 
 			gotCode := rr.Code
 			if gotCode != tt.wantCode {
-				t.Errorf("handler.doLoginPost() code = %v, wantCode %v", gotCode, tt.wantCode)
+				t.Errorf("AuthorizationServer.doLoginPost() code = %v, wantCode %v", gotCode, tt.wantCode)
 			}
 
-			if rr.Code == 200 {
+			if rr.Code == http.StatusOK {
 				var got JSONWebKeySet
 				err := json.Unmarshal(rr.Body.Bytes(), &got)
 				if err != nil {
@@ -258,13 +258,13 @@ func Test_writeJSON(t *testing.T) {
 		{
 			name: "stream error",
 			args: args{
-				w: &errorResponseWriter{},
+				w: &errorResponseWriter{WriteError: errors.New("some error")},
 			},
 			want: func(t *testing.T, w http.ResponseWriter) {
-				wantCode := 500
+				wantCode := http.StatusInternalServerError
 				gotCode := w.(*errorResponseWriter).Result().StatusCode
 				if gotCode != wantCode {
-					t.Errorf("handler.doLoginPost() code = %v, wantCode %v", gotCode, wantCode)
+					t.Errorf("AuthorizationServer.writeJSON() code = %v, wantCode %v", gotCode, wantCode)
 				}
 			},
 		},
@@ -279,20 +279,116 @@ func Test_writeJSON(t *testing.T) {
 	}
 }
 
+func TestAuthorizationServer_doClientCredentialsFlow(t *testing.T) {
+	type fields struct {
+		Server     http.Server
+		clients    []*Client
+		signingKey *ecdsa.PrivateKey
+	}
+	type args struct {
+		r *http.Request
+	}
+	tests := []struct {
+		name     string
+		fields   fields
+		args     args
+		wantCode int
+		wantBody string
+	}{
+		{
+			name: "missing or invalid authorization",
+			args: args{
+				r: &http.Request{
+					Method: "POST",
+					Header: http.Header{
+						http.CanonicalHeaderKey("Authorization"): []string{"notvalid"},
+					},
+				},
+			},
+			wantCode: http.StatusUnauthorized,
+			wantBody: `{"error": "invalid_client"}`,
+		},
+		{
+			name: "correct authorization but invalid signing key",
+			fields: fields{
+				clients: []*Client{
+					{
+						clientID:     "client",
+						clientSecret: "secret",
+					},
+				},
+				signingKey: &ecdsa.PrivateKey{
+					D: big.NewInt(1),
+					PublicKey: ecdsa.PublicKey{
+						X: big.NewInt(1),
+						Y: big.NewInt(1),
+						Curve: func() elliptic.Curve {
+							var c = elliptic.CurveParams{
+								N:  elliptic.P224().Params().N,
+								P:  elliptic.P224().Params().P,
+								B:  elliptic.P224().Params().B,
+								Gx: elliptic.P224().Params().Gx,
+								Gy: elliptic.P224().Params().Gy,
+							}
+							// Adjust bit size to make it a corrupt key
+							c.BitSize = 100
+							return &c
+						}(),
+					},
+				},
+			},
+			args: args{
+				r: &http.Request{
+					Method: "POST",
+					Header: http.Header{
+						http.CanonicalHeaderKey("Authorization"): []string{"Basic Y2xpZW50OnNlY3JldA=="}, // client:secret
+					},
+				},
+			},
+			wantCode: 500,
+			wantBody: "error while creating JWT",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			srv := &AuthorizationServer{
+				Server:     tt.fields.Server,
+				clients:    tt.fields.clients,
+				signingKey: tt.fields.signingKey,
+			}
+
+			rr := httptest.NewRecorder()
+			srv.doClientCredentialsFlow(rr, tt.args.r)
+
+			gotCode := rr.Code
+			if gotCode != tt.wantCode {
+				t.Errorf("AuthorizationServer.doClientCredentialsFlow() code = %v, wantCode %v", gotCode, tt.wantCode)
+			}
+
+			gotBody := strings.Trim(rr.Body.String(), "\n")
+			if gotBody != tt.wantBody {
+				t.Errorf("AuthorizationServer.doClientCredentialsFlow() body = %v, wantBody %v", gotBody, tt.wantBody)
+			}
+		})
+	}
+}
+
 type errorResponseWriter struct {
 	http.Response
+	WriteError error
 }
 
 func (errorResponseWriter) Header() http.Header {
 	return http.Header{}
 }
 
-func (errorResponseWriter) Write([]byte) (int, error) {
-	return 0, errors.New("some error")
+func (e *errorResponseWriter) Write([]byte) (int, error) {
+	return 0, e.WriteError
 }
 
-func (m *errorResponseWriter) WriteHeader(statusCode int) {
-	m.StatusCode = statusCode
+func (e *errorResponseWriter) WriteHeader(statusCode int) {
+	e.StatusCode = statusCode
 }
 
 func (m *errorResponseWriter) Result() *http.Response {

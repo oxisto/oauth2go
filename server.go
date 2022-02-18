@@ -127,23 +127,30 @@ func (srv *AuthorizationServer) doClientCredentialsFlow(w http.ResponseWriter, r
 }
 
 func (srv *AuthorizationServer) handleJWKS(w http.ResponseWriter, r *http.Request) {
+	var (
+		publicKey *ecdsa.PublicKey
+		keySet    *JSONWebKeySet
+	)
+
 	if r.Method != "GET" {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
 
-	var keySet = JSONWebKeySet{
+	publicKey = srv.PublicKey()
+
+	keySet = &JSONWebKeySet{
 		Keys: []JSONWebKey{
 			{
 				Kid: "1",
 				Kty: "EC",
-				X:   base64.RawURLEncoding.EncodeToString(srv.signingKey.X.Bytes()),
-				Y:   base64.RawURLEncoding.EncodeToString(srv.signingKey.Y.Bytes()),
+				X:   base64.RawURLEncoding.EncodeToString(publicKey.X.Bytes()),
+				Y:   base64.RawURLEncoding.EncodeToString(publicKey.Y.Bytes()),
 			},
 		},
 	}
 
-	writeJSON(w, &keySet)
+	writeJSON(w, keySet)
 }
 
 func (srv *AuthorizationServer) retrieveClient(r *http.Request) (*Client, error) {
