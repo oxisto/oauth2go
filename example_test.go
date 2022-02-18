@@ -9,7 +9,7 @@ import (
 
 // ExampleLoginPage sets up an OAuth 2.0 authorization server with an integrated
 // login page (acting as an authentication server).
-func ExampleLoginPage() {
+func ExampleAuthorizationServer() {
 	var srv *oauth2.AuthorizationServer
 	var port = 8080
 

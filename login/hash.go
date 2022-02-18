@@ -7,27 +7,28 @@ import "golang.org/x/crypto/bcrypt"
 // creating a hash out of a password and one for comparing a hash with a password.
 type PasswordHasher interface {
 	// CompareHashAndPassword compares a hash and a password. If successful, no error is returned.
-	CompareHashAndPassword(hash string, password string) (err error)
+	CompareHashAndPassword(hash []byte, password []byte) (err error)
 
 	// GenerateFromPassword generates a hash out of a password. opts can be used to supply
 	// implementation specific parameters.
-	GenerateFromPassword(password string, opts ...interface{}) (hash string, err error)
+	GenerateFromPassword(password []byte, opts ...interface{}) (hash []byte, err error)
 }
 
 // bcryptHasher is an implementation of PasswordHasher using the x/crypto/bcrypt package.
 type bcryptHasher struct{}
 
 // CompareHashAndPassword is an implementation of PasswordHasher using bcrypt.
-func (bcryptHasher) CompareHashAndPassword(hash string, password string) (err error) {
-	return bcrypt.CompareHashAndPassword([]byte(hash), ([]byte(password)))
+func (bcryptHasher) CompareHashAndPassword(hash []byte, password []byte) (err error) {
+	return bcrypt.CompareHashAndPassword(hash, password)
 }
 
 // GenerateFromPassword is an implementation of PasswordHasher using bcrypt. If a single
 // variadic option is supplied as integer, it is taken as the cost parameter.
-func (bcryptHasher) GenerateFromPassword(password string, opts ...interface{}) (hash string, err error) {
-	var cost = bcrypt.DefaultCost
-	var ok bool
-	var b []byte
+func (bcryptHasher) GenerateFromPassword(password []byte, opts ...interface{}) (hash []byte, err error) {
+	var (
+		cost = bcrypt.DefaultCost
+		ok   bool
+	)
 
 	if len(opts) == 1 {
 		if _, ok = opts[0].(int); ok {
@@ -35,10 +36,5 @@ func (bcryptHasher) GenerateFromPassword(password string, opts ...interface{}) (
 		}
 	}
 
-	b, err = bcrypt.GenerateFromPassword([]byte(password), cost)
-	if err != nil {
-		return "", err
-	}
-
-	return string(b), nil
+	return bcrypt.GenerateFromPassword(password, cost)
 }

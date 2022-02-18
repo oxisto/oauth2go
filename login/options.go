@@ -26,7 +26,7 @@ func WithPassswordHasher(pwh PasswordHasher) handlerOption {
 
 func WithUser(name string, password string) handlerOption {
 	return func(srv *handler) {
-		hash, err := srv.pwh.GenerateFromPassword(password)
+		hash, err := srv.pwh.GenerateFromPassword([]byte(password))
 		if err != nil {
 			srv.log.Printf("Could not generate hash from password: %w. Not adding user", err)
 			return
@@ -34,7 +34,7 @@ func WithUser(name string, password string) handlerOption {
 
 		srv.users = append(srv.users, &User{
 			Name:         name,
-			PasswordHash: hash,
+			PasswordHash: string(hash),
 		})
 
 		password = ""

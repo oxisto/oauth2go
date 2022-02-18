@@ -8,6 +8,8 @@
 package login
 
 import (
+	"errors"
+	"io/fs"
 	"log"
 	"net/http"
 	"net/http/httptest"
@@ -18,6 +20,7 @@ import (
 	"time"
 
 	oauth2 "github.com/oxisto/oauth2go"
+	"github.com/oxisto/oauth2go/internal/mock"
 	"golang.org/x/crypto/bcrypt"
 )
 
@@ -26,6 +29,7 @@ func Test_handler_doLoginGet(t *testing.T) {
 		sessions map[string]*session
 		users    []*User
 		log      oauth2.Logger
+		files    fs.FS
 	}
 	type args struct {
 		r *http.Request
@@ -41,6 +45,7 @@ func Test_handler_doLoginGet(t *testing.T) {
 			name: "Login failed",
 			fields: fields{
 				sessions: map[string]*session{},
+				files:    embedFS,
 			},
 			args: args{
 				r: &http.Request{
@@ -54,6 +59,7 @@ func Test_handler_doLoginGet(t *testing.T) {
 			name: "No cookie",
 			fields: fields{
 				sessions: map[string]*session{},
+				files:    embedFS,
 			},
 			args: args{
 				r: &http.Request{
@@ -67,6 +73,7 @@ func Test_handler_doLoginGet(t *testing.T) {
 			name: "Not existing session",
 			fields: fields{
 				sessions: map[string]*session{},
+				files:    embedFS,
 			},
 			args: args{
 				r: &http.Request{
@@ -91,6 +98,7 @@ func Test_handler_doLoginGet(t *testing.T) {
 						ExpireAt: time.Time{},
 					},
 				},
+				files: embedFS,
 			},
 			args: args{
 				r: &http.Request{
@@ -115,6 +123,7 @@ func Test_handler_doLoginGet(t *testing.T) {
 						ExpireAt: time.Now().Add(time.Minute * 10),
 					},
 				},
+				files: embedFS,
 			},
 			args: args{
 				r: &http.Request{
@@ -135,6 +144,7 @@ func Test_handler_doLoginGet(t *testing.T) {
 				users:    tt.fields.users,
 				log:      tt.fields.log,
 				baseURL:  "/",
+				files:    tt.fields.files,
 			}
 
 			rr := httptest.NewRecorder()
@@ -154,13 +164,14 @@ func Test_handler_doLoginGet(t *testing.T) {
 }
 
 func Test_handler_doLoginPost(t *testing.T) {
-	var hash, _ = bcryptHasher{}.GenerateFromPassword("admin", bcrypt.DefaultCost)
+	var hash, _ = bcryptHasher{}.GenerateFromPassword([]byte("admin"), bcrypt.DefaultCost)
 
 	type fields struct {
 		sessions map[string]*session
 		users    []*User
 		log      oauth2.Logger
 		pwh      PasswordHasher
+		files    fs.FS
 	}
 	type args struct {
 		r *http.Request
@@ -233,6 +244,7 @@ func Test_handler_doLoginPost(t *testing.T) {
 				users:    tt.fields.users,
 				log:      tt.fields.log,
 				pwh:      tt.fields.pwh,
+				files:    tt.fields.files,
 				baseURL:  "/",
 			}
 
@@ -269,6 +281,7 @@ func Test_handler_ServeHTTP(t *testing.T) {
 		log      oauth2.Logger
 		baseURL  string
 		pwh      PasswordHasher
+		files    fs.FS
 	}
 	type args struct {
 		r *http.Request
@@ -280,8 +293,10 @@ func Test_handler_ServeHTTP(t *testing.T) {
 		wantCode int
 	}{
 		{
-			name:   "GET request",
-			fields: fields{},
+			name: "GET request",
+			fields: fields{
+				files: embedFS,
+			},
 			args: args{
 				r: &http.Request{
 					Method: "GET",
@@ -291,8 +306,10 @@ func Test_handler_ServeHTTP(t *testing.T) {
 			wantCode: 200,
 		},
 		{
-			name:   "POST request",
-			fields: fields{},
+			name: "POST request",
+			fields: fields{
+				files: embedFS,
+			},
 			args: args{
 				r: &http.Request{
 					Method: "POST",
@@ -311,6 +328,7 @@ func Test_handler_ServeHTTP(t *testing.T) {
 				log:      tt.fields.log,
 				baseURL:  tt.fields.baseURL,
 				pwh:      tt.fields.pwh,
+				files:    tt.fields.files,
 			}
 
 			rr := httptest.NewRecorder()
@@ -319,6 +337,111 @@ func Test_handler_ServeHTTP(t *testing.T) {
 			gotCode := rr.Code
 			if tt.wantCode != gotCode {
 				t.Errorf("handler.doLoginPost() header = %v, wantHeader %v", gotCode, tt.wantCode)
+			}
+		})
+	}
+}
+
+func Test_handler_handleLoginPage(t *testing.T) {
+	type fields struct {
+		sessions map[string]*session
+		users    []*User
+		log      oauth2.Logger
+		baseURL  string
+		pwh      PasswordHasher
+		files    fs.FS
+	}
+	type args struct {
+		w     http.ResponseWriter
+		r     *http.Request
+		error string
+	}
+	tests := []struct {
+		name     string
+		fields   fields
+		args     args
+		wantCode int
+		wantBody string
+	}{
+		{
+			name: "invalid fs",
+			args: args{
+				w: httptest.NewRecorder(),
+			},
+			fields: fields{
+				files: &mockFS{OpenError: errors.New("some error")},
+			},
+			wantCode: http.StatusInternalServerError,
+			wantBody: "template: pattern matches no files: `login.html`",
+		},
+		{
+			name: "invalid template",
+			args: args{
+				w: httptest.NewRecorder(),
+			},
+			fields: fields{
+				files: &mockFS{File: &mockFile{content: "{{"}}, // unclosed action
+			},
+			wantCode: http.StatusInternalServerError,
+			wantBody: "template: login.html:1: unclosed action",
+		},
+		{
+			name: "valid template without errors",
+			args: args{
+				w: &mock.MockResponseRecorder{
+					ResponseRecorder: httptest.NewRecorder(),
+				},
+			},
+			fields: fields{
+				files: &mockFS{File: &mockFile{content: "test"}},
+			},
+			wantCode: http.StatusOK,
+			wantBody: "test",
+		},
+		{
+			name: "valid template with error while writing",
+			args: args{
+				w: &mock.MockResponseRecorder{
+					ResponseRecorder: httptest.NewRecorder(),
+					WriteError:       errors.New("some error"),
+				},
+			},
+			fields: fields{
+				files: &mockFS{File: &mockFile{content: "test"}},
+			},
+			wantCode: http.StatusInternalServerError,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			h := &handler{
+				sessions: tt.fields.sessions,
+				users:    tt.fields.users,
+				log:      tt.fields.log,
+				baseURL:  tt.fields.baseURL,
+				pwh:      tt.fields.pwh,
+				files:    tt.fields.files,
+			}
+
+			h.handleLoginPage(tt.args.w, tt.args.r, tt.args.error)
+
+			var rr *httptest.ResponseRecorder
+			switch v := tt.args.w.(type) {
+			case *httptest.ResponseRecorder:
+				rr = v
+			case *mock.MockResponseRecorder:
+				rr = v.ResponseRecorder
+			}
+
+			gotCode := rr.Code
+			if tt.wantCode != gotCode {
+				t.Errorf("handler.handleLoginPage() header = %v, wantHeader %v", gotCode, tt.wantCode)
+			}
+
+			gotBody := rr.Body.String()
+			if tt.wantBody != "" && !strings.Contains(gotBody, tt.wantBody) {
+				t.Errorf("handler.handleLoginPage() body = %v, wantBody %v", gotBody, tt.wantBody)
 			}
 		})
 	}

@@ -27,17 +27,6 @@ type AuthorizationServer struct {
 	signingKey *ecdsa.PrivateKey
 }
 
-// JSONWebKey is a JSON Web Key that only supports elliptic curve keys for now.
-type JSONWebKey struct {
-	Kid string `json:"kid"`
-
-	Kty string `json:"kty"`
-
-	X string `json:"x"`
-
-	Y string `json:"y"`
-}
-
 type AuthorizationServerOption func(srv *AuthorizationServer)
 
 func WithClient(clientID string, clientSecret string) AuthorizationServerOption {
@@ -71,6 +60,11 @@ func NewServer(addr string, opts ...AuthorizationServerOption) *AuthorizationSer
 	mux.HandleFunc("/.well-known/jwks.json", srv.handleJWKS)
 
 	return srv
+}
+
+// PublicKey returns the public key of the signing key of this authorization server.
+func (srv *AuthorizationServer) PublicKey() *ecdsa.PublicKey {
+	return &srv.signingKey.PublicKey
 }
 
 func (srv *AuthorizationServer) handleToken(w http.ResponseWriter, r *http.Request) {
@@ -133,25 +127,30 @@ func (srv *AuthorizationServer) doClientCredentialsFlow(w http.ResponseWriter, r
 }
 
 func (srv *AuthorizationServer) handleJWKS(w http.ResponseWriter, r *http.Request) {
+	var (
+		publicKey *ecdsa.PublicKey
+		keySet    *JSONWebKeySet
+	)
+
 	if r.Method != "GET" {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
 
-	var keySet = struct {
-		Keys []JSONWebKey `json:"keys"`
-	}{
+	publicKey = srv.PublicKey()
+
+	keySet = &JSONWebKeySet{
 		Keys: []JSONWebKey{
 			{
 				Kid: "1",
 				Kty: "EC",
-				X:   base64.RawURLEncoding.EncodeToString(srv.signingKey.X.Bytes()),
-				Y:   base64.RawURLEncoding.EncodeToString(srv.signingKey.X.Bytes()),
+				X:   base64.RawURLEncoding.EncodeToString(publicKey.X.Bytes()),
+				Y:   base64.RawURLEncoding.EncodeToString(publicKey.Y.Bytes()),
 			},
 		},
 	}
 
-	writeJSON(w, &keySet)
+	writeJSON(w, keySet)
 }
 
 func (srv *AuthorizationServer) retrieveClient(r *http.Request) (*Client, error) {

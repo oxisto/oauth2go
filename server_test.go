@@ -1,19 +1,18 @@
 package oauth2
 
 import (
-	"context"
 	"crypto/ecdsa"
-	"fmt"
-	"log"
-	"net"
+	"crypto/elliptic"
+	"encoding/json"
+	"errors"
+	"math/big"
 	"net/http"
 	"net/http/httptest"
 	"reflect"
 	"strings"
 	"testing"
 
-	"github.com/golang-jwt/jwt/v4"
-	"golang.org/x/oauth2/clientcredentials"
+	"github.com/oxisto/oauth2go/internal/mock"
 )
 
 func TestAuthorizationServer_handleToken(t *testing.T) {
@@ -31,6 +30,14 @@ func TestAuthorizationServer_handleToken(t *testing.T) {
 		args     args
 		wantBody string
 	}{
+		{
+			name: "wrong method",
+			args: args{
+				r: &http.Request{
+					Method: "GET",
+				},
+			},
+		},
 		{
 			name: "unsupported grant",
 			args: args{
@@ -58,39 +65,6 @@ func TestAuthorizationServer_handleToken(t *testing.T) {
 			}
 		})
 	}
-}
-
-func TestIntegration(t *testing.T) {
-	srv := NewServer(":0", WithClient("client", "secret"))
-	ln, err := net.Listen("tcp", srv.Addr)
-	if err != nil {
-		t.Errorf("Error while listening key: %v", err)
-	}
-
-	go srv.Serve(ln)
-	defer srv.Close()
-
-	config := clientcredentials.Config{
-		ClientID:     "client",
-		ClientSecret: "secret",
-		TokenURL:     fmt.Sprintf("http://localhost:%d/token", ln.Addr().(*net.TCPAddr).Port),
-	}
-
-	token, err := config.Token(context.Background())
-	if err != nil {
-		t.Errorf("Error while retrieving a token: %v", err)
-	}
-
-	log.Printf("Token: %s", token.AccessToken)
-
-	jwtoken, err := jwt.ParseWithClaims(token.AccessToken, &jwt.RegisteredClaims{}, func(t *jwt.Token) (interface{}, error) {
-		return &srv.signingKey.PublicKey, nil
-	})
-	if err != nil {
-		t.Errorf("Error while retrieving a token: %v", err)
-	}
-
-	log.Printf("JWT: %+v", jwtoken)
 }
 
 func TestAuthorizationServer_retrieveClient(t *testing.T) {
@@ -132,7 +106,7 @@ func TestAuthorizationServer_retrieveClient(t *testing.T) {
 			args: args{
 				r: &http.Request{
 					Header: http.Header{
-						http.CanonicalHeaderKey("Authorization"): []string{"Basic bm90aGluZw=="},
+						http.CanonicalHeaderKey("Authorization"): []string{"Basic bm90aGluZw=="}, // nothing
 					},
 				},
 			},
@@ -143,7 +117,7 @@ func TestAuthorizationServer_retrieveClient(t *testing.T) {
 			args: args{
 				r: &http.Request{
 					Header: http.Header{
-						http.CanonicalHeaderKey("Authorization"): []string{"Basic Y2xpZW50Om5vdHNlY3JldA=="},
+						http.CanonicalHeaderKey("Authorization"): []string{"Basic Y2xpZW50Om5vdHNlY3JldA=="}, // client:notsecret
 					},
 				},
 			},
@@ -162,7 +136,7 @@ func TestAuthorizationServer_retrieveClient(t *testing.T) {
 			args: args{
 				r: &http.Request{
 					Header: http.Header{
-						http.CanonicalHeaderKey("Authorization"): []string{"Basic Y2xpZW50OnNlY3JldA=="},
+						http.CanonicalHeaderKey("Authorization"): []string{"Basic Y2xpZW50OnNlY3JldA=="}, // client:secret
 					},
 				},
 			},
@@ -186,6 +160,225 @@ func TestAuthorizationServer_retrieveClient(t *testing.T) {
 			}
 			if !reflect.DeepEqual(got, tt.want) {
 				t.Errorf("AuthorizationServer.retrieveClient() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestAuthorizationServer_handleJWKS(t *testing.T) {
+	type fields struct {
+		Server     http.Server
+		clients    []*Client
+		signingKey *ecdsa.PrivateKey
+	}
+	type args struct {
+		r *http.Request
+	}
+	tests := []struct {
+		name     string
+		fields   fields
+		args     args
+		want     *JSONWebKeySet
+		wantCode int
+	}{
+		{
+			name: "retrieve JWKS with GET",
+			fields: fields{
+				signingKey: &ecdsa.PrivateKey{
+					PublicKey: ecdsa.PublicKey{
+						Curve: elliptic.P256(),
+						X:     big.NewInt(1),
+						Y:     big.NewInt(2),
+					},
+				},
+			},
+			args: args{
+				r: httptest.NewRequest("GET", "/.well-known/jwks.json", nil),
+			},
+			want: &JSONWebKeySet{
+				Keys: []JSONWebKey{{
+					Kid: "1",
+					Kty: "EC",
+					X:   "AQ",
+					Y:   "Ag",
+				}},
+			},
+			wantCode: http.StatusOK,
+		},
+		{
+			name:   "retrieve JWKS with POST",
+			fields: fields{},
+			args: args{
+				r: httptest.NewRequest("POST", "/.well-known/jwks.json", nil),
+			},
+			want:     nil,
+			wantCode: http.StatusMethodNotAllowed,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			srv := &AuthorizationServer{
+				Server:     tt.fields.Server,
+				clients:    tt.fields.clients,
+				signingKey: tt.fields.signingKey,
+			}
+
+			rr := httptest.NewRecorder()
+			srv.handleJWKS(rr, tt.args.r)
+
+			gotCode := rr.Code
+			if gotCode != tt.wantCode {
+				t.Errorf("AuthorizationServer.doLoginPost() code = %v, wantCode %v", gotCode, tt.wantCode)
+			}
+
+			if rr.Code == http.StatusOK {
+				var got JSONWebKeySet
+				err := json.Unmarshal(rr.Body.Bytes(), &got)
+				if err != nil {
+					panic(err)
+				}
+
+				if !reflect.DeepEqual(&got, tt.want) {
+					t.Errorf("AuthorizationServer.handleJWKS() = %v, want %v", got, tt.want)
+				}
+			}
+		})
+	}
+}
+
+func Test_writeJSON(t *testing.T) {
+	type args struct {
+		w     http.ResponseWriter
+		value interface{}
+	}
+	tests := []struct {
+		name     string
+		args     args
+		wantCode int
+	}{
+		{
+			name: "stream error",
+			args: args{
+				w: &mock.MockResponseRecorder{
+					ResponseRecorder: httptest.NewRecorder(),
+					WriteError:       errors.New("some error"),
+				},
+			},
+			wantCode: http.StatusInternalServerError,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			writeJSON(tt.args.w, tt.args.value)
+
+			var rr *httptest.ResponseRecorder
+			switch v := tt.args.w.(type) {
+			case *httptest.ResponseRecorder:
+				rr = v
+			case *mock.MockResponseRecorder:
+				rr = v.ResponseRecorder
+			}
+
+			gotCode := rr.Code
+			if gotCode != tt.wantCode {
+				t.Errorf("AuthorizationServer.writeJSON() code = %v, wantCode %v", gotCode, tt.wantCode)
+			}
+		})
+	}
+}
+
+func TestAuthorizationServer_doClientCredentialsFlow(t *testing.T) {
+	type fields struct {
+		Server     http.Server
+		clients    []*Client
+		signingKey *ecdsa.PrivateKey
+	}
+	type args struct {
+		r *http.Request
+	}
+	tests := []struct {
+		name     string
+		fields   fields
+		args     args
+		wantCode int
+		wantBody string
+	}{
+		{
+			name: "missing or invalid authorization",
+			args: args{
+				r: &http.Request{
+					Method: "POST",
+					Header: http.Header{
+						http.CanonicalHeaderKey("Authorization"): []string{"notvalid"},
+					},
+				},
+			},
+			wantCode: http.StatusUnauthorized,
+			wantBody: `{"error": "invalid_client"}`,
+		},
+		{
+			name: "correct authorization but invalid signing key",
+			fields: fields{
+				clients: []*Client{
+					{
+						clientID:     "client",
+						clientSecret: "secret",
+					},
+				},
+				signingKey: &ecdsa.PrivateKey{
+					D: big.NewInt(1),
+					PublicKey: ecdsa.PublicKey{
+						X: big.NewInt(1),
+						Y: big.NewInt(1),
+						Curve: func() elliptic.Curve {
+							var c = elliptic.CurveParams{
+								N:  elliptic.P224().Params().N,
+								P:  elliptic.P224().Params().P,
+								B:  elliptic.P224().Params().B,
+								Gx: elliptic.P224().Params().Gx,
+								Gy: elliptic.P224().Params().Gy,
+							}
+							// Adjust bit size to make it a corrupt key
+							c.BitSize = 100
+							return &c
+						}(),
+					},
+				},
+			},
+			args: args{
+				r: &http.Request{
+					Method: "POST",
+					Header: http.Header{
+						http.CanonicalHeaderKey("Authorization"): []string{"Basic Y2xpZW50OnNlY3JldA=="}, // client:secret
+					},
+				},
+			},
+			wantCode: 500,
+			wantBody: "error while creating JWT",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			srv := &AuthorizationServer{
+				Server:     tt.fields.Server,
+				clients:    tt.fields.clients,
+				signingKey: tt.fields.signingKey,
+			}
+
+			rr := httptest.NewRecorder()
+			srv.doClientCredentialsFlow(rr, tt.args.r)
+
+			gotCode := rr.Code
+			if gotCode != tt.wantCode {
+				t.Errorf("AuthorizationServer.doClientCredentialsFlow() code = %v, wantCode %v", gotCode, tt.wantCode)
+			}
+
+			gotBody := strings.Trim(rr.Body.String(), "\n")
+			if gotBody != tt.wantBody {
+				t.Errorf("AuthorizationServer.doClientCredentialsFlow() body = %v, wantBody %v", gotBody, tt.wantBody)
 			}
 		})
 	}
