@@ -13,10 +13,7 @@ import (
 
 var port = flag.Int("port", 8080, "the default port")
 var srv *oauth2.AuthorizationServer
-var readyToServe chan bool
-var ctx = func(net.Listener) context.Context {
-	return context.Background()
-}
+var ctx func(net.Listener) context.Context = nil
 
 func main() {
 	flag.Parse()
@@ -29,8 +26,6 @@ func main() {
 	srv.BaseContext = ctx
 
 	log.Printf("Creating new OAuth 2.0 server on :%d", *port)
-
-	go func() { readyToServe <- true }()
 
 	log.Fatal(srv.ListenAndServe())
 }
