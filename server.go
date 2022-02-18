@@ -9,7 +9,6 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
-	"strings"
 	"time"
 
 	"github.com/golang-jwt/jwt/v4"
@@ -155,33 +154,16 @@ func (srv *AuthorizationServer) handleJWKS(w http.ResponseWriter, r *http.Reques
 
 func (srv *AuthorizationServer) retrieveClient(r *http.Request) (*Client, error) {
 	var (
-		idx           int
-		b             []byte
-		authorization string
-		basic         string
-		clientID      string
-		clientSecret  string
+		ok           bool
+		clientID     string
+		clientSecret string
 	)
 
-	authorization = r.Header.Get("authorization")
-	idx = strings.Index(authorization, "Basic ")
-	if idx == -1 {
-		return nil, errors.New("invalid authentication scheme")
-	}
+	clientID, clientSecret, ok = r.BasicAuth()
 
-	b, err := base64.StdEncoding.DecodeString(authorization[idx+6:])
-	if err != nil {
-		return nil, fmt.Errorf("could not decode basic authentication: %w", err)
+	if !ok {
+		return nil, errors.New("invalid or missing basic authentication")
 	}
-
-	basic = string(b)
-	idx = strings.Index(basic, ":")
-	if idx == -1 {
-		return nil, errors.New("misformed basic authentication")
-	}
-
-	clientID = basic[0:idx]
-	clientSecret = basic[idx+1:]
 
 	// Look for a matching client
 	for _, c := range srv.clients {
