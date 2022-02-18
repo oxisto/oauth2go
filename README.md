@@ -20,7 +20,7 @@ This project mainly started out of the need to have a very small, embedded OAuth
 
 *I wanted something that intentionally does not support legacy flows but focuses on the newer RFCs and possibly move into the direction of [OAuth 2.1](https://datatracker.ietf.org/doc/html/draft-ietf-oauth-v2-1-04).*
 
-*I wanted something with zero (or almost) zero dependencies. Therefore I strictly try to only include the following dependencies: golang.org/x/oauth2 (which hopefully might be part of the standard library one day) and github.com/golang-jwt/jwt (which itself also has a zero dependency policy)*
+*I wanted something with zero (or almost) zero dependencies. Therefore I strictly try to only include the following dependencies: golang.org/x/oauth2, golang.org/x/crypto (which hopefully might be part of the standard library one day) and github.com/golang-jwt/jwt (which itself also has a zero dependency policy)*
 
 ## How to use?
 

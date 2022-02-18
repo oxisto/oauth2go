@@ -19,6 +19,7 @@ import (
 	"time"
 
 	oauth2 "github.com/oxisto/oauth2go"
+	"golang.org/x/crypto/bcrypt"
 )
 
 //go:embed login.html
@@ -38,10 +39,18 @@ func WithLoginPage(opts ...handlerOption) oauth2.AuthorizationServerOption {
 
 func WithUser(name string, password string) handlerOption {
 	return func(srv *handler) {
+		hash, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
+		if err != nil {
+			srv.log.Printf("Could not generate bcrypt hash from password: %w. Not adding user", err)
+			return
+		}
+
 		srv.users = append(srv.users, &User{
-			name:     name,
-			password: password,
+			Name:     name,
+			Password: string(hash),
 		})
+
+		password = ""
 	}
 }
 
@@ -76,9 +85,14 @@ type handler struct {
 	baseURL string
 }
 
+// User represents a user in our authentication server. It has a unique name
+// and potentially other meta-data.
 type User struct {
-	name     string
-	password string
+	// The unique name of this user
+	Name string
+
+	// The (hashed) user password.
+	Password string
 }
 
 func NewHandler() *handler {
@@ -240,9 +254,13 @@ func (h *handler) doLoginPost(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *handler) user(username string, password string) *User {
+	defer func() {
+		password = ""
+	}()
+
 	// Look for username and password
 	for _, u := range h.users {
-		if u.name == username && u.password == password {
+		if u.Name == username && bcrypt.CompareHashAndPassword([]byte(u.Password), []byte(password)) == nil {
 			return u
 		}
 	}

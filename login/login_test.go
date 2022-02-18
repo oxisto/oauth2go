@@ -18,6 +18,7 @@ import (
 	"time"
 
 	oauth2 "github.com/oxisto/oauth2go"
+	"golang.org/x/crypto/bcrypt"
 )
 
 func Test_handler_doLoginGet(t *testing.T) {
@@ -85,7 +86,7 @@ func Test_handler_doLoginGet(t *testing.T) {
 					"mySession": {
 						ID: "mySession",
 						User: &User{
-							name: "MyUser",
+							Name: "MyUser",
 						},
 						ExpireAt: time.Time{},
 					},
@@ -109,7 +110,7 @@ func Test_handler_doLoginGet(t *testing.T) {
 					"mySession": {
 						ID: "mySession",
 						User: &User{
-							name: "MyUser",
+							Name: "MyUser",
 						},
 						ExpireAt: time.Now().Add(time.Minute * 10),
 					},
@@ -153,6 +154,8 @@ func Test_handler_doLoginGet(t *testing.T) {
 }
 
 func Test_handler_doLoginPost(t *testing.T) {
+	var hash, _ = bcrypt.GenerateFromPassword([]byte("admin"), bcrypt.DefaultCost)
+
 	type fields struct {
 		sessions map[string]*session
 		users    []*User
@@ -174,7 +177,7 @@ func Test_handler_doLoginPost(t *testing.T) {
 			fields: fields{
 				sessions: make(map[string]*session),
 				users: []*User{
-					{name: "admin", password: "admin"},
+					{Name: "admin", Password: string(hash)},
 				},
 				log: log.Default(),
 			},
@@ -199,7 +202,7 @@ func Test_handler_doLoginPost(t *testing.T) {
 			fields: fields{
 				sessions: make(map[string]*session),
 				users: []*User{
-					{name: "admin", password: "admin"},
+					{Name: "admin", Password: string(hash)},
 				},
 				log: log.Default(),
 			},
