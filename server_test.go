@@ -11,6 +11,8 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+
+	"github.com/oxisto/oauth2go/internal/mock"
 )
 
 func TestAuthorizationServer_handleToken(t *testing.T) {
@@ -251,22 +253,19 @@ func Test_writeJSON(t *testing.T) {
 		value interface{}
 	}
 	tests := []struct {
-		name string
-		args args
-		want func(t *testing.T, w http.ResponseWriter)
+		name     string
+		args     args
+		wantCode int
 	}{
 		{
 			name: "stream error",
 			args: args{
-				w: &mockResponseWriter{WriteError: errors.New("some error")},
+				w: &mock.ErrorResponseRecorder{
+					ResponseRecorder: httptest.NewRecorder(),
+					WriteError:       errors.New("some error"),
+				},
 			},
-			want: func(t *testing.T, w http.ResponseWriter) {
-				wantCode := http.StatusInternalServerError
-				gotCode := w.(*mockResponseWriter).Result().StatusCode
-				if gotCode != wantCode {
-					t.Errorf("AuthorizationServer.writeJSON() code = %v, wantCode %v", gotCode, wantCode)
-				}
-			},
+			wantCode: http.StatusInternalServerError,
 		},
 	}
 
@@ -274,7 +273,18 @@ func Test_writeJSON(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			writeJSON(tt.args.w, tt.args.value)
 
-			tt.want(t, tt.args.w)
+			var rr *httptest.ResponseRecorder
+			switch v := tt.args.w.(type) {
+			case *httptest.ResponseRecorder:
+				rr = v
+			case *mock.ErrorResponseRecorder:
+				rr = v.ResponseRecorder
+			}
+
+			gotCode := rr.Code
+			if gotCode != tt.wantCode {
+				t.Errorf("AuthorizationServer.writeJSON() code = %v, wantCode %v", gotCode, tt.wantCode)
+			}
 		})
 	}
 }

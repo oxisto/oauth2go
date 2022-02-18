@@ -20,6 +20,7 @@ import (
 	"time"
 
 	oauth2 "github.com/oxisto/oauth2go"
+	"github.com/oxisto/oauth2go/internal/mock"
 	"golang.org/x/crypto/bcrypt"
 )
 
@@ -351,6 +352,7 @@ func Test_handler_handleLoginPage(t *testing.T) {
 		files    fs.FS
 	}
 	type args struct {
+		w     http.ResponseWriter
 		r     *http.Request
 		error string
 	}
@@ -363,6 +365,9 @@ func Test_handler_handleLoginPage(t *testing.T) {
 	}{
 		{
 			name: "invalid fs",
+			args: args{
+				w: httptest.NewRecorder(),
+			},
 			fields: fields{
 				files: &mockFS{OpenError: errors.New("some error")},
 			},
@@ -371,6 +376,9 @@ func Test_handler_handleLoginPage(t *testing.T) {
 		},
 		{
 			name: "invalid template",
+			args: args{
+				w: httptest.NewRecorder(),
+			},
 			fields: fields{
 				files: &mockFS{File: &mockFile{content: "{{"}}, // unclosed action
 			},
@@ -379,11 +387,27 @@ func Test_handler_handleLoginPage(t *testing.T) {
 		},
 		{
 			name: "valid template",
+			args: args{
+				w: httptest.NewRecorder(),
+			},
 			fields: fields{
 				files: &mockFS{File: &mockFile{content: "test"}},
 			},
 			wantCode: http.StatusOK,
 			wantBody: "test",
+		},
+		{
+			name: "valid template with error while writing",
+			args: args{
+				w: &mock.ErrorResponseRecorder{
+					ResponseRecorder: httptest.NewRecorder(),
+					WriteError:       errors.New("some error"),
+				},
+			},
+			fields: fields{
+				files: &mockFS{File: &mockFile{content: "test"}},
+			},
+			wantCode: http.StatusInternalServerError,
 		},
 	}
 
@@ -398,8 +422,15 @@ func Test_handler_handleLoginPage(t *testing.T) {
 				files:    tt.fields.files,
 			}
 
-			rr := httptest.NewRecorder()
-			h.handleLoginPage(rr, tt.args.r, tt.args.error)
+			h.handleLoginPage(tt.args.w, tt.args.r, tt.args.error)
+
+			var rr *httptest.ResponseRecorder
+			switch v := tt.args.w.(type) {
+			case *httptest.ResponseRecorder:
+				rr = v
+			case *mock.ErrorResponseRecorder:
+				rr = v.ResponseRecorder
+			}
 
 			gotCode := rr.Code
 			if tt.wantCode != gotCode {
