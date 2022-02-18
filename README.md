@@ -8,11 +8,13 @@
 
 ## What is this?
 
-`oauth2go` aims to be a basic [OAuth 2.0](https://datatracker.ietf.org/doc/html/rfc6749) server that implements at least some of the most basic OAuth 2.0 flows.
+`oauth2go` aims to be a basic [OAuth 2.0](https://datatracker.ietf.org/doc/html/rfc6749) authorization server that implements at least some of the most basic OAuth 2.0 flows. Since the canonical import name for this package is `oauth2`, it also provides type aliases for exported structs and interfaces of the [`golang.org/x/oauth2`](https://pkg.go.dev/golang.org/x/oauth2) package, so that both OAuth 2.0 client and server structs can be accessed using an `oauth2` package. Additional structs for specialized client flows or endpoints still need to be retrieved from the corresponding sub-package, such as [`golang.org/x/oauth2/clientcredentials`](https://pkg.go.dev/golang.org/x/oauth2/clientcredentials).
+
+In it's bare form, this package only contains an *authorization server*, which does not have any "users" or any possibility to "log in", as this is the duty of an *authentication server*. However, for convenience, the `login` package includes a very basic authentication server which implements a POST form based `/login` endpoint and a simple login form located in [`login/login.html`](login/login.html).
 
 ## Why?
 
-This project mainly started out of the need to have a very small, embedded OAuth 2.0 server. The main use case was a "demo" or all-in-one-mode of a large micro-service application. In production deployments, this application uses a dedicated authentication server, but I wanted something for my "demo" mode. While there are some implementations out there, it was not easy to fulfill my requirements.
+This project mainly started out of the need to have a very small, embedded OAuth 2.0 authorization server, written in Go. The main use case was a "demo" or all-in-one-mode of a large micro-service application, as well as integration testing. In production deployments, this application uses a dedicated authentication server, but I wanted something for my "demo" mode. While there are some implementations out there, it was not easy to fulfill my requirements.
 
 *I wanted something small, lean and easily embedded in my Go code, not a full-blown authentication services with thousands of adapters and backends (written in Java).*
 
@@ -22,7 +24,7 @@ This project mainly started out of the need to have a very small, embedded OAuth
 
 ## How to use?
 
-Well, I have to program it first.
+A very simple OAuth 2.0 authorization server with an integrated authentication ("login") server can be created like this.
 
 ```golang
 import (
@@ -33,7 +35,7 @@ import (
 func main() {
     var srv *oauth2.AuthorizationServer
 
-	srv = oauth2.NewServer(":8080",
+    srv = oauth2.NewServer(":8080",
         login.WithLoginPage(login.WithUser("admin", "admin")),
     )
 
