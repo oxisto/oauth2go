@@ -18,6 +18,7 @@ import (
 	"time"
 
 	oauth2 "github.com/oxisto/oauth2go"
+	"golang.org/x/crypto/bcrypt"
 )
 
 func Test_handler_doLoginGet(t *testing.T) {
@@ -85,7 +86,7 @@ func Test_handler_doLoginGet(t *testing.T) {
 					"mySession": {
 						ID: "mySession",
 						User: &User{
-							name: "MyUser",
+							Name: "MyUser",
 						},
 						ExpireAt: time.Time{},
 					},
@@ -109,7 +110,7 @@ func Test_handler_doLoginGet(t *testing.T) {
 					"mySession": {
 						ID: "mySession",
 						User: &User{
-							name: "MyUser",
+							Name: "MyUser",
 						},
 						ExpireAt: time.Now().Add(time.Minute * 10),
 					},
@@ -153,10 +154,13 @@ func Test_handler_doLoginGet(t *testing.T) {
 }
 
 func Test_handler_doLoginPost(t *testing.T) {
+	var hash, _ = bcryptHasher{}.GenerateFromPassword("admin", bcrypt.DefaultCost)
+
 	type fields struct {
 		sessions map[string]*session
 		users    []*User
 		log      oauth2.Logger
+		pwh      PasswordHasher
 	}
 	type args struct {
 		r *http.Request
@@ -174,9 +178,10 @@ func Test_handler_doLoginPost(t *testing.T) {
 			fields: fields{
 				sessions: make(map[string]*session),
 				users: []*User{
-					{name: "admin", password: "admin"},
+					{Name: "admin", PasswordHash: string(hash)},
 				},
 				log: log.Default(),
+				pwh: bcryptHasher{},
 			},
 			args: args{
 				r: &http.Request{
@@ -199,9 +204,10 @@ func Test_handler_doLoginPost(t *testing.T) {
 			fields: fields{
 				sessions: make(map[string]*session),
 				users: []*User{
-					{name: "admin", password: "admin"},
+					{Name: "admin", PasswordHash: string(hash)},
 				},
 				log: log.Default(),
+				pwh: bcryptHasher{},
 			},
 			args: args{
 				r: &http.Request{
@@ -226,6 +232,7 @@ func Test_handler_doLoginPost(t *testing.T) {
 				sessions: tt.fields.sessions,
 				users:    tt.fields.users,
 				log:      tt.fields.log,
+				pwh:      tt.fields.pwh,
 				baseURL:  "/",
 			}
 
@@ -250,6 +257,68 @@ func Test_handler_doLoginPost(t *testing.T) {
 
 			if tt.wantHeader != nil && !reflect.DeepEqual(gotHeader, tt.wantHeader) {
 				t.Errorf("handler.doLoginPost() header = %v, wantHeader %v", gotHeader, tt.wantHeader)
+			}
+		})
+	}
+}
+
+func Test_handler_ServeHTTP(t *testing.T) {
+	type fields struct {
+		sessions map[string]*session
+		users    []*User
+		log      oauth2.Logger
+		baseURL  string
+		pwh      PasswordHasher
+	}
+	type args struct {
+		r *http.Request
+	}
+	tests := []struct {
+		name     string
+		fields   fields
+		args     args
+		wantCode int
+	}{
+		{
+			name:   "GET request",
+			fields: fields{},
+			args: args{
+				r: &http.Request{
+					Method: "GET",
+					URL:    &url.URL{Path: "/login"},
+				},
+			},
+			wantCode: 200,
+		},
+		{
+			name:   "POST request",
+			fields: fields{},
+			args: args{
+				r: &http.Request{
+					Method: "POST",
+					URL:    &url.URL{Path: "/login"},
+				},
+			},
+			wantCode: 500, // because this request is highly invalid
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			h := &handler{
+				sessions: tt.fields.sessions,
+				users:    tt.fields.users,
+				log:      tt.fields.log,
+				baseURL:  tt.fields.baseURL,
+				pwh:      tt.fields.pwh,
+			}
+
+			rr := httptest.NewRecorder()
+			h.ServeHTTP(rr, tt.args.r)
+
+			gotCode := rr.Code
+			if tt.wantCode != gotCode {
+				t.Errorf("handler.doLoginPost() header = %v, wantHeader %v", gotCode, tt.wantCode)
 			}
 		})
 	}

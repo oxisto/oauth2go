@@ -11,5 +11,4 @@ func TestIntegration(t *testing.T) {
 	srv := oauth2.NewServer(":0", login.WithLoginPage(login.WithUser("admin", "admin")))
 	go srv.ListenAndServe()
 	defer srv.Close()
-
 }

@@ -24,29 +24,6 @@ import (
 //go:embed login.html
 var files embed.FS
 
-func WithLoginPage(opts ...handlerOption) oauth2.AuthorizationServerOption {
-	h := NewHandler()
-
-	for _, o := range opts {
-		o(h)
-	}
-
-	return func(srv *oauth2.AuthorizationServer) {
-		srv.Handler.(*http.ServeMux).Handle("/login", h)
-	}
-}
-
-func WithUser(name string, password string) handlerOption {
-	return func(srv *handler) {
-		srv.users = append(srv.users, &User{
-			name:     name,
-			password: password,
-		})
-	}
-}
-
-type handlerOption func(*handler)
-
 // session describes a currently active login session for a particular user
 type session struct {
 	ID string
@@ -74,11 +51,18 @@ type handler struct {
 
 	// the base url of our authentication server
 	baseURL string
+
+	pwh PasswordHasher
 }
 
+// User represents a user in our authentication server. It has a unique name
+// and potentially other meta-data.
 type User struct {
-	name     string
-	password string
+	// The unique name of this user
+	Name string
+
+	// The (hashed) user password.
+	PasswordHash string
 }
 
 func NewHandler() *handler {
@@ -86,6 +70,7 @@ func NewHandler() *handler {
 		sessions: map[string]*session{},
 		users:    []*User{},
 		baseURL:  "/",
+		pwh:      bcryptHasher{},
 	}
 
 	if h.log == nil {
@@ -240,9 +225,13 @@ func (h *handler) doLoginPost(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *handler) user(username string, password string) *User {
+	defer func() {
+		password = ""
+	}()
+
 	// Look for username and password
 	for _, u := range h.users {
-		if u.name == username && u.password == password {
+		if u.Name == username && h.pwh.CompareHashAndPassword(u.PasswordHash, password) == nil {
 			return u
 		}
 	}
