@@ -8,7 +8,6 @@
 package login
 
 import (
-	"errors"
 	"io/fs"
 	"log"
 	"net/http"
@@ -20,7 +19,6 @@ import (
 	"time"
 
 	oauth2 "github.com/oxisto/oauth2go"
-	"github.com/oxisto/oauth2go/internal/mock"
 	"golang.org/x/crypto/bcrypt"
 )
 
@@ -133,7 +131,7 @@ func Test_handler_doLoginGet(t *testing.T) {
 					URL: &url.URL{Host: "localhost:8080"},
 				},
 			},
-			wantCode: http.StatusSeeOther,
+			wantCode: http.StatusFound,
 		},
 	}
 
@@ -204,7 +202,7 @@ func Test_handler_doLoginPost(t *testing.T) {
 					},
 				},
 			},
-			wantCode: http.StatusSeeOther,
+			wantCode: http.StatusFound,
 			wantHeader: http.Header{
 				http.CanonicalHeaderKey("Location"): []string{"/"},
 			},
@@ -303,10 +301,10 @@ func Test_handler_ServeHTTP(t *testing.T) {
 					URL:    &url.URL{Path: "/login"},
 				},
 			},
-			wantCode: 200,
+			wantCode: http.StatusOK,
 		},
 		{
-			name: "POST request",
+			name: "invalid POST request, redirect to login page",
 			fields: fields{
 				files: embedFS,
 			},
@@ -316,7 +314,7 @@ func Test_handler_ServeHTTP(t *testing.T) {
 					URL:    &url.URL{Path: "/login"},
 				},
 			},
-			wantCode: 500, // because this request is highly invalid
+			wantCode: http.StatusSeeOther,
 		},
 	}
 
@@ -342,7 +340,7 @@ func Test_handler_ServeHTTP(t *testing.T) {
 	}
 }
 
-func Test_handler_handleLoginPage(t *testing.T) {
+func Test_handler_parseReturnURL(t *testing.T) {
 	type fields struct {
 		sessions map[string]*session
 		users    []*User
@@ -352,64 +350,55 @@ func Test_handler_handleLoginPage(t *testing.T) {
 		files    fs.FS
 	}
 	type args struct {
-		w     http.ResponseWriter
-		r     *http.Request
-		error string
+		r *http.Request
 	}
 	tests := []struct {
-		name     string
-		fields   fields
-		args     args
-		wantCode int
-		wantBody string
+		name          string
+		fields        fields
+		args          args
+		wantReturnURL string
 	}{
 		{
-			name: "invalid fs",
-			args: args{
-				w: httptest.NewRecorder(),
-			},
+			name: "valid return URL",
 			fields: fields{
-				files: &mockFS{OpenError: errors.New("some error")},
+				baseURL: "/",
 			},
-			wantCode: http.StatusInternalServerError,
-			wantBody: "template: pattern matches no files: `login.html`",
-		},
-		{
-			name: "invalid template",
 			args: args{
-				w: httptest.NewRecorder(),
-			},
-			fields: fields{
-				files: &mockFS{File: &mockFile{content: "{{"}}, // unclosed action
-			},
-			wantCode: http.StatusInternalServerError,
-			wantBody: "template: login.html:1: unclosed action",
-		},
-		{
-			name: "valid template without errors",
-			args: args{
-				w: &mock.MockResponseRecorder{
-					ResponseRecorder: httptest.NewRecorder(),
+				r: &http.Request{
+					Form: url.Values{
+						"return_url": []string{"/relative"},
+					},
 				},
 			},
-			fields: fields{
-				files: &mockFS{File: &mockFile{content: "test"}},
-			},
-			wantCode: http.StatusOK,
-			wantBody: "test",
+			wantReturnURL: "/relative",
 		},
 		{
-			name: "valid template with error while writing",
+			name: "non-relative return URL",
+			fields: fields{
+				baseURL: "/",
+			},
 			args: args{
-				w: &mock.MockResponseRecorder{
-					ResponseRecorder: httptest.NewRecorder(),
-					WriteError:       errors.New("some error"),
+				r: &http.Request{
+					Form: url.Values{
+						"return_url": []string{"https://localhost/absolute"},
+					},
 				},
 			},
+			wantReturnURL: "/",
+		},
+		{
+			name: "invalid return URL",
 			fields: fields{
-				files: &mockFS{File: &mockFile{content: "test"}},
+				baseURL: "/",
 			},
-			wantCode: http.StatusInternalServerError,
+			args: args{
+				r: &http.Request{
+					Form: url.Values{
+						"return_url": []string{"://"},
+					},
+				},
+			},
+			wantReturnURL: "/",
 		},
 	}
 
@@ -423,25 +412,8 @@ func Test_handler_handleLoginPage(t *testing.T) {
 				pwh:      tt.fields.pwh,
 				files:    tt.fields.files,
 			}
-
-			h.handleLoginPage(tt.args.w, tt.args.r, tt.args.error)
-
-			var rr *httptest.ResponseRecorder
-			switch v := tt.args.w.(type) {
-			case *httptest.ResponseRecorder:
-				rr = v
-			case *mock.MockResponseRecorder:
-				rr = v.ResponseRecorder
-			}
-
-			gotCode := rr.Code
-			if tt.wantCode != gotCode {
-				t.Errorf("handler.handleLoginPage() header = %v, wantHeader %v", gotCode, tt.wantCode)
-			}
-
-			gotBody := rr.Body.String()
-			if tt.wantBody != "" && !strings.Contains(gotBody, tt.wantBody) {
-				t.Errorf("handler.handleLoginPage() body = %v, wantBody %v", gotBody, tt.wantBody)
+			if gotReturnURL := h.parseReturnURL(tt.args.r); gotReturnURL != tt.wantReturnURL {
+				t.Errorf("handler.parseReturnURL() = %v, want %v", gotReturnURL, tt.wantReturnURL)
 			}
 		})
 	}
