@@ -11,7 +11,6 @@ import (
 	"crypto/rand"
 	"embed"
 	"encoding/base64"
-	"html/template"
 	"io/fs"
 	"log"
 	"net/http"
@@ -119,6 +118,7 @@ func (h *handler) newSession(user *User) *session {
 	return &session
 }
 
+// removeSession removes an (expired) session from the session storage
 func (h *handler) removeSession(id string) {
 	h.sm.Lock()
 	defer h.sm.Unlock()
@@ -138,24 +138,28 @@ func (h *handler) doLoginGet(w http.ResponseWriter, r *http.Request) {
 		returnURL string
 		cookie    *http.Cookie
 		session   *session
+		form      loginForm
 	)
 
 	// Retrive an optional return URL. Will default to the handler's base URL
 	returnURL = h.parseReturnURL(r)
 
+	// Prepare the login form
+	form = loginForm{returnURL: returnURL, fs: h.files}
+
 	// Before any other checks, check if we have an indication that we were redirected
 	// here because of a failure
 	if r.URL.Query().Has("failed") {
 		// We display the login page with an error message
-		h.handleLoginPage(w, r, "Invalid credentials", returnURL)
+		form.errorMessage = "Invalid credentials"
+		form.ServeHTTP(w, r)
 		return
 	}
 
 	// Check, if we have have a cookie
 	cookie, err = r.Cookie("id")
 	if err != nil {
-		// Regardless of the error, we display the login page
-		h.handleLoginPage(w, r, "", returnURL)
+		form.ServeHTTP(w, r)
 		return
 	}
 
@@ -166,36 +170,19 @@ func (h *handler) doLoginGet(w http.ResponseWriter, r *http.Request) {
 
 	if !ok {
 		// No session, so we display the login page
-		h.handleLoginPage(w, r, "", returnURL)
+		form.ServeHTTP(w, r)
 		return
 	}
 
 	if session.Expired() {
 		// Session is expired, so we remove it from our list and also display the login page
 		h.removeSession(session.ID)
-		h.handleLoginPage(w, r, "", returnURL)
+		form.ServeHTTP(w, r)
 		return
 	}
 
 	// Seems like we have a valid session. Woohoo. Nothing to do except redirecting
 	http.Redirect(w, r, returnURL, http.StatusFound)
-}
-
-func (h *handler) handleLoginPage(w http.ResponseWriter, r *http.Request, error string, returnURL string) {
-	var tmpl, err = template.ParseFS(h.files, "login.html")
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
-	}
-
-	err = tmpl.Execute(w, map[string]interface{}{
-		"ErrorMessage": error,
-		"ReturnURL":    returnURL,
-	})
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
-	}
 }
 
 func (h *handler) doLoginPost(w http.ResponseWriter, r *http.Request) {
