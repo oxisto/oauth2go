@@ -133,7 +133,7 @@ func Test_handler_doLoginGet(t *testing.T) {
 					URL: &url.URL{Host: "localhost:8080"},
 				},
 			},
-			wantCode: http.StatusSeeOther,
+			wantCode: http.StatusFound,
 		},
 	}
 
@@ -204,7 +204,7 @@ func Test_handler_doLoginPost(t *testing.T) {
 					},
 				},
 			},
-			wantCode: http.StatusSeeOther,
+			wantCode: http.StatusFound,
 			wantHeader: http.Header{
 				http.CanonicalHeaderKey("Location"): []string{"/"},
 			},
@@ -303,10 +303,10 @@ func Test_handler_ServeHTTP(t *testing.T) {
 					URL:    &url.URL{Path: "/login"},
 				},
 			},
-			wantCode: 200,
+			wantCode: http.StatusOK,
 		},
 		{
-			name: "POST request",
+			name: "invalid POST request, redirect to login page",
 			fields: fields{
 				files: embedFS,
 			},
@@ -316,7 +316,7 @@ func Test_handler_ServeHTTP(t *testing.T) {
 					URL:    &url.URL{Path: "/login"},
 				},
 			},
-			wantCode: 500, // because this request is highly invalid
+			wantCode: http.StatusSeeOther,
 		},
 	}
 
@@ -352,9 +352,10 @@ func Test_handler_handleLoginPage(t *testing.T) {
 		files    fs.FS
 	}
 	type args struct {
-		w     http.ResponseWriter
-		r     *http.Request
-		error string
+		w         http.ResponseWriter
+		r         *http.Request
+		error     string
+		returnURL string
 	}
 	tests := []struct {
 		name     string
@@ -424,7 +425,7 @@ func Test_handler_handleLoginPage(t *testing.T) {
 				files:    tt.fields.files,
 			}
 
-			h.handleLoginPage(tt.args.w, tt.args.r, tt.args.error)
+			h.handleLoginPage(tt.args.w, tt.args.r, tt.args.error, tt.args.returnURL)
 
 			var rr *httptest.ResponseRecorder
 			switch v := tt.args.w.(type) {
@@ -442,6 +443,85 @@ func Test_handler_handleLoginPage(t *testing.T) {
 			gotBody := rr.Body.String()
 			if tt.wantBody != "" && !strings.Contains(gotBody, tt.wantBody) {
 				t.Errorf("handler.handleLoginPage() body = %v, wantBody %v", gotBody, tt.wantBody)
+			}
+		})
+	}
+}
+
+func Test_handler_parseReturnURL(t *testing.T) {
+	type fields struct {
+		sessions map[string]*session
+		users    []*User
+		log      oauth2.Logger
+		baseURL  string
+		pwh      PasswordHasher
+		files    fs.FS
+	}
+	type args struct {
+		r *http.Request
+	}
+	tests := []struct {
+		name          string
+		fields        fields
+		args          args
+		wantReturnURL string
+	}{
+		{
+			name: "valid return URL",
+			fields: fields{
+				baseURL: "/",
+			},
+			args: args{
+				r: &http.Request{
+					Form: url.Values{
+						"return_url": []string{"/relative"},
+					},
+				},
+			},
+			wantReturnURL: "/relative",
+		},
+		{
+			name: "non-relative return URL",
+			fields: fields{
+				baseURL: "/",
+			},
+			args: args{
+				r: &http.Request{
+					Form: url.Values{
+						"return_url": []string{"https://localhost/absolute"},
+					},
+				},
+			},
+			wantReturnURL: "/",
+		},
+		{
+			name: "invalid return URL",
+			fields: fields{
+				baseURL: "/",
+			},
+			args: args{
+				r: &http.Request{
+					Form: url.Values{
+						"return_url": []string{"://"},
+					},
+				},
+			},
+			wantReturnURL: "/",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			h := &handler{
+				sessions: tt.fields.sessions,
+				users:    tt.fields.users,
+				log:      tt.fields.log,
+				baseURL:  tt.fields.baseURL,
+				pwh:      tt.fields.pwh,
+				files:    tt.fields.files,
+			}
+			if gotReturnURL := h.parseReturnURL(tt.args.r); gotReturnURL != tt.wantReturnURL {
+				t.Errorf("handler.parseReturnURL() = %v, want %v", gotReturnURL, tt.wantReturnURL)
 			}
 		})
 	}

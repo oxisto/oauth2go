@@ -15,6 +15,7 @@ import (
 	"io/fs"
 	"log"
 	"net/http"
+	"net/url"
 	"path"
 	"sync"
 	"time"
@@ -132,17 +133,21 @@ func (h *handler) removeSession(id string) {
 // If successful, it redirects to the base url.
 func (h *handler) doLoginGet(w http.ResponseWriter, r *http.Request) {
 	var (
-		err     error
-		ok      bool
-		cookie  *http.Cookie
-		session *session
+		err       error
+		ok        bool
+		returnURL string
+		cookie    *http.Cookie
+		session   *session
 	)
+
+	// Retrive an optional return URL. Will default to the handler's base URL
+	returnURL = h.parseReturnURL(r)
 
 	// Before any other checks, check if we have an indication that we were redirected
 	// here because of a failure
-	if _, ok = r.URL.Query()["failed"]; ok {
+	if r.URL.Query().Has("failed") {
 		// We display the login page with an error message
-		h.handleLoginPage(w, r, "Invalid credentials")
+		h.handleLoginPage(w, r, "Invalid credentials", returnURL)
 		return
 	}
 
@@ -150,7 +155,7 @@ func (h *handler) doLoginGet(w http.ResponseWriter, r *http.Request) {
 	cookie, err = r.Cookie("id")
 	if err != nil {
 		// Regardless of the error, we display the login page
-		h.handleLoginPage(w, r, "")
+		h.handleLoginPage(w, r, "", returnURL)
 		return
 	}
 
@@ -161,22 +166,22 @@ func (h *handler) doLoginGet(w http.ResponseWriter, r *http.Request) {
 
 	if !ok {
 		// No session, so we display the login page
-		h.handleLoginPage(w, r, "")
+		h.handleLoginPage(w, r, "", returnURL)
 		return
 	}
 
 	if session.Expired() {
 		// Session is expired, so we remove it from our list and also display the login page
 		h.removeSession(session.ID)
-		h.handleLoginPage(w, r, "")
+		h.handleLoginPage(w, r, "", returnURL)
 		return
 	}
 
 	// Seems like we have a valid session. Woohoo. Nothing to do except redirecting
-	http.Redirect(w, r, h.baseURL, http.StatusSeeOther)
+	http.Redirect(w, r, returnURL, http.StatusFound)
 }
 
-func (h *handler) handleLoginPage(w http.ResponseWriter, r *http.Request, error string) {
+func (h *handler) handleLoginPage(w http.ResponseWriter, r *http.Request, error string, returnURL string) {
 	var tmpl, err = template.ParseFS(h.files, "login.html")
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
@@ -185,6 +190,7 @@ func (h *handler) handleLoginPage(w http.ResponseWriter, r *http.Request, error 
 
 	err = tmpl.Execute(w, map[string]interface{}{
 		"ErrorMessage": error,
+		"ReturnURL":    returnURL,
 	})
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
@@ -193,17 +199,21 @@ func (h *handler) handleLoginPage(w http.ResponseWriter, r *http.Request, error 
 }
 
 func (h *handler) doLoginPost(w http.ResponseWriter, r *http.Request) {
-	var err error
-	if err = r.ParseForm(); err != nil {
-		http.Error(w, "could not parse form data", http.StatusInternalServerError)
-		return
-	}
+	var (
+		returnURL string
+		user      *User
+	)
 
-	user := h.user(r.FormValue("username"), r.FormValue("password"))
+	// Parse the return URL
+	returnURL = h.parseReturnURL(r)
+
+	// Retrieve the user. Returns nil, if no user has been found with these credentials
+	user = h.user(r.FormValue("username"), r.FormValue("password"))
 	if user == nil {
 		url := path.Join(h.baseURL, "/login?failed")
 
-		// Redirect back to login page (but with an error message)
+		// Redirect back to login page (but with an error message).
+		// We are using http.StatusSeeOther because we are changing the method from POST to GET
 		http.Redirect(w, r, url, http.StatusSeeOther)
 		return
 	}
@@ -225,8 +235,8 @@ func (h *handler) doLoginPost(w http.ResponseWriter, r *http.Request) {
 
 	h.log.Printf("Generating new session with id %s", session.ID)
 
-	// Everything good, lets redirect to the base URL
-	http.Redirect(w, r, h.baseURL, http.StatusSeeOther)
+	// Everything good, lets redirect to the return URL.
+	http.Redirect(w, r, returnURL, http.StatusFound)
 }
 
 func (h *handler) user(username string, password string) *User {
@@ -250,4 +260,29 @@ func GeneratePassword() string {
 	rand.Read(b)
 
 	return base64.StdEncoding.EncodeToString(b)
+}
+
+// parseReturnURL checks for the existence of a return URL in the HTTP request.
+// It will return the handlers base URL, if the return URL is either missing or invalid.
+// For security reasons, only relative URLs are allowed.
+func (h *handler) parseReturnURL(r *http.Request) (returnURL string) {
+	var (
+		err error
+		u   *url.URL
+	)
+
+	returnURL = r.FormValue("return_url")
+	if u, err = url.Parse(returnURL); err != nil {
+		// Revert back to the base URL
+		returnURL = h.baseURL
+		return
+	}
+
+	if u.IsAbs() {
+		// Revert back to the base URL
+		returnURL = h.baseURL
+		return
+	}
+
+	return
 }
