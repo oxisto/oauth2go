@@ -1,7 +1,9 @@
 package csrf
 
 import (
+	"encoding/base64"
 	"errors"
+	"reflect"
 	"testing"
 )
 
@@ -55,6 +57,13 @@ func TestUnmask(t *testing.T) {
 		wantErr error
 	}{
 		{
+			name: "illegal base64",
+			args: args{
+				token: ",aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+			},
+			wantErr: base64.CorruptInputError(0),
+		},
+		{
 			name: "successful unmask",
 			args: args{
 				token: mask,
@@ -64,7 +73,7 @@ func TestUnmask(t *testing.T) {
 		{
 			name: "invalid length",
 			args: args{
-				token: "mytoken",
+				token: "aaaaa",
 			},
 			want:    "",
 			wantErr: ErrInvalidLength,
@@ -74,12 +83,57 @@ func TestUnmask(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			got, gotErr := Unmask(tt.args.token)
 
-			if gotErr != nil && !errors.Is(gotErr, tt.wantErr) {
+			if !errors.Is(gotErr, tt.wantErr) {
 				t.Errorf("Unmask() error = %v, want %v", gotErr, tt.wantErr)
 			}
 
 			if got != tt.want {
 				t.Errorf("Unmask() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
+func Test_xor(t *testing.T) {
+	type args struct {
+		x []byte
+		y []byte
+	}
+	tests := []struct {
+		name       string
+		args       args
+		wantResult []byte
+	}{
+		{
+			name: "xor same length",
+			args: args{
+				x: []byte{0, 1, 2, 3, 4},
+				y: []byte{1, 1, 1, 1, 1},
+			},
+			wantResult: []byte{1, 0, 3, 2, 5},
+		},
+		{
+			name: "xor smaller y",
+			args: args{
+				x: []byte{0, 1, 2, 3, 4},
+				y: []byte{1, 1, 1, 1},
+			},
+			wantResult: []byte{1, 0, 3, 2},
+		},
+		{
+			name: "xor larger y",
+			args: args{
+				x: []byte{0, 1, 2, 3, 4},
+				y: []byte{1, 1, 1, 1, 1, 1},
+			},
+			wantResult: []byte{1, 0, 3, 2, 5},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if gotResult := xor(tt.args.x, tt.args.y); !reflect.DeepEqual(gotResult, tt.wantResult) {
+				t.Errorf("xor() = %v, want %v", gotResult, tt.wantResult)
 			}
 		})
 	}

@@ -262,7 +262,7 @@ func Test_handler_doLoginPost(t *testing.T) {
 			wantCookie: true,
 		},
 		{
-			name: "Invalid CSRF",
+			name: "Invalid CSRF length",
 			fields: fields{
 				sessions: map[string]*session{
 					"mySession": {
@@ -286,6 +286,40 @@ func Test_handler_doLoginPost(t *testing.T) {
 					},
 					PostForm: url.Values{
 						"csrf_token": []string{"myOtherToken"},
+					},
+				},
+			},
+			wantCode: http.StatusSeeOther,
+			wantHeader: http.Header{
+				http.CanonicalHeaderKey("Location"): []string{"/login?failed"},
+			},
+			wantCookie: true,
+		},
+		{
+			name: "Not matching CSRF",
+			fields: fields{
+				sessions: map[string]*session{
+					"mySession": {
+						ID:        "mySession",
+						CSRFToken: "myToken",
+						ExpireAt:  time.Now().Add(5 * time.Hour),
+					},
+				},
+				users: []*User{
+					{Name: "admin", PasswordHash: string(hash)},
+				},
+				log: log.Default(),
+				pwh: bcryptHasher{},
+			},
+			args: args{
+				r: &http.Request{
+					Method: "POST",
+					URL:    &url.URL{Host: "localhost", Path: "/login"},
+					Header: http.Header{
+						"Cookie": []string{"id=mySession"},
+					},
+					PostForm: url.Values{
+						"csrf_token": []string{csrf.Mask(csrf.GenerateToken())},
 					},
 				},
 			},

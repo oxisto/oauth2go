@@ -33,7 +33,9 @@ func Mask(sessionToken string) string {
 }
 
 func Unmask(token string) (string, error) {
-	if len(token) != DoubleEncodedTokenSize+EncodedTokenSize {
+	n := len(token)
+
+	if n != DoubleEncodedTokenSize+EncodedTokenSize {
 		return "", ErrInvalidLength
 	}
 
