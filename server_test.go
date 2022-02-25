@@ -17,7 +17,6 @@ import (
 
 func TestAuthorizationServer_handleToken(t *testing.T) {
 	type fields struct {
-		Server     http.Server
 		clients    []*Client
 		signingKey *ecdsa.PrivateKey
 	}
@@ -53,7 +52,6 @@ func TestAuthorizationServer_handleToken(t *testing.T) {
 			rr := httptest.NewRecorder()
 
 			srv := &AuthorizationServer{
-				Server:     tt.fields.Server,
 				clients:    tt.fields.clients,
 				signingKey: tt.fields.signingKey,
 			}
@@ -69,7 +67,6 @@ func TestAuthorizationServer_handleToken(t *testing.T) {
 
 func TestAuthorizationServer_retrieveClient(t *testing.T) {
 	type fields struct {
-		Server     http.Server
 		clients    []*Client
 		signingKey *ecdsa.PrivateKey
 	}
@@ -149,7 +146,6 @@ func TestAuthorizationServer_retrieveClient(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			srv := &AuthorizationServer{
-				Server:     tt.fields.Server,
 				clients:    tt.fields.clients,
 				signingKey: tt.fields.signingKey,
 			}
@@ -167,7 +163,6 @@ func TestAuthorizationServer_retrieveClient(t *testing.T) {
 
 func TestAuthorizationServer_handleJWKS(t *testing.T) {
 	type fields struct {
-		Server     http.Server
 		clients    []*Client
 		signingKey *ecdsa.PrivateKey
 	}
@@ -219,7 +214,6 @@ func TestAuthorizationServer_handleJWKS(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			srv := &AuthorizationServer{
-				Server:     tt.fields.Server,
 				clients:    tt.fields.clients,
 				signingKey: tt.fields.signingKey,
 			}
@@ -291,7 +285,6 @@ func Test_writeJSON(t *testing.T) {
 
 func TestAuthorizationServer_doClientCredentialsFlow(t *testing.T) {
 	type fields struct {
-		Server     http.Server
 		clients    []*Client
 		signingKey *ecdsa.PrivateKey
 	}
@@ -363,7 +356,6 @@ func TestAuthorizationServer_doClientCredentialsFlow(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			srv := &AuthorizationServer{
-				Server:     tt.fields.Server,
 				clients:    tt.fields.clients,
 				signingKey: tt.fields.signingKey,
 			}
