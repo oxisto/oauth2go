@@ -153,7 +153,7 @@ func (h *handler) updateSession(w http.ResponseWriter, session *session, user *U
 
 	http.SetCookie(w, session.Cookie(h.baseURL))
 
-	h.log.Printf("Updating session with id %s to user %s", session.ID, user.Name)
+	h.log.Printf("Associating session with id %s to user %s", session.ID, user.Name)
 }
 
 // removeSession removes an (expired) session from the session storage

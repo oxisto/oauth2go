@@ -9,7 +9,6 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
-	"net/url"
 	"time"
 
 	"github.com/golang-jwt/jwt/v4"
@@ -134,33 +133,6 @@ func (srv *AuthorizationServer) doClientCredentialsFlow(w http.ResponseWriter, r
 	}
 
 	writeJSON(w, &token)
-}
-
-// handleAuthorize implements the authorization endpoint (see https://datatracker.ietf.org/doc/html/rfc6749#section-4.1).
-func (srv *AuthorizationServer) handleAuthorize(w http.ResponseWriter, r *http.Request) {
-	var (
-		err         error
-		clientID    string
-		redirectURI string
-		state       string
-		query       url.Values
-	)
-
-	query = r.URL.Query()
-
-	if query.Get("response_type") != "code" {
-		Error(w, "TODO", http.StatusBadRequest)
-		return
-	}
-
-	if clientID = query.Get("client_id"); clientID == "" {
-		Error(w, "invalid_client", http.StatusBadRequest)
-	}
-
-	redirectURI = query.Get("redirect_uri")
-	state = query.Get("state")
-
-	fmt.Printf("%+v %+v %+v", err, redirectURI, state)
 }
 
 func (srv *AuthorizationServer) handleJWKS(w http.ResponseWriter, r *http.Request) {
