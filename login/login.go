@@ -9,6 +9,7 @@ package login
 
 import (
 	"crypto/rand"
+	"crypto/subtle"
 	"embed"
 	"encoding/base64"
 	"io/fs"
@@ -182,8 +183,8 @@ func (h *handler) doLoginGet(w http.ResponseWriter, r *http.Request) {
 	// Extract our session (or potentially start a new one)
 	session = h.extractSession(w, r)
 
-	// Prepare the login form
-	form = loginForm{returnURL: returnURL, fs: h.files, csrfToken: session.CSRFToken}
+	// Prepare the login form. We are using a masked CSRF token for each request
+	form = loginForm{returnURL: returnURL, fs: h.files, csrfToken: csrf.Mask(session.CSRFToken)}
 
 	// Check, if we have an additional failure message
 	if r.URL.Query().Has("failed") {
@@ -207,6 +208,7 @@ func (h *handler) doLoginPost(w http.ResponseWriter, r *http.Request) {
 		csrfToken string
 		user      *User
 		session   *session
+		err       error
 	)
 
 	// Parse the return URL
@@ -215,13 +217,14 @@ func (h *handler) doLoginPost(w http.ResponseWriter, r *http.Request) {
 	// Retrieve our session.
 	session = h.extractSession(w, r)
 
-	// Retrieve our CSRF token
-	csrfToken = r.FormValue("csrf_token")
+	// Retrieve our CSRF token and unmask it
+	csrfToken, err = csrf.Unmask(r.FormValue("csrf_token"))
+	if err != nil {
+		goto fail
+	}
 
 	// We can only continue, if the token matches our stored CSRF token
-	//
-	// TODO: use masked token
-	if csrfToken != session.CSRFToken {
+	if subtle.ConstantTimeCompare([]byte(csrfToken), []byte(session.CSRFToken)) != 1 {
 		goto fail
 	}
 

@@ -1,6 +1,7 @@
 package csrf
 
 import (
+	"errors"
 	"testing"
 )
 
@@ -60,17 +61,25 @@ func TestUnmask(t *testing.T) {
 			},
 			want: token,
 		},
+		{
+			name: "invalid length",
+			args: args{
+				token: "mytoken",
+			},
+			want:    "",
+			wantErr: ErrInvalidLength,
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			got, gotErr := Unmask(tt.args.token)
 
-			if gotErr != tt.wantErr {
-				t.Errorf("Unmask() = %v, want %v", got, tt.want)
+			if gotErr != nil && !errors.Is(gotErr, tt.wantErr) {
+				t.Errorf("Unmask() error = %v, want %v", gotErr, tt.wantErr)
 			}
 
 			if got != tt.want {
-				t.Errorf("Unmask() error = %v, want %v", gotErr, tt.wantErr)
+				t.Errorf("Unmask() = %v, want %v", got, tt.want)
 			}
 		})
 	}

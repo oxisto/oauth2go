@@ -19,6 +19,7 @@ import (
 	"time"
 
 	oauth2 "github.com/oxisto/oauth2go"
+	"github.com/oxisto/oauth2go/login/csrf"
 	"golang.org/x/crypto/bcrypt"
 )
 
@@ -168,6 +169,7 @@ func Test_handler_doLoginGet(t *testing.T) {
 
 func Test_handler_doLoginPost(t *testing.T) {
 	var hash, _ = bcryptHasher{}.GenerateFromPassword([]byte("admin"), bcrypt.DefaultCost)
+	var token = csrf.GenerateToken()
 
 	type fields struct {
 		sessions map[string]*session
@@ -193,7 +195,7 @@ func Test_handler_doLoginPost(t *testing.T) {
 				sessions: map[string]*session{
 					"mySession": {
 						ID:        "mySession",
-						CSRFToken: "myToken",
+						CSRFToken: token,
 						ExpireAt:  time.Now().Add(5 * time.Hour),
 					},
 				},
@@ -211,7 +213,7 @@ func Test_handler_doLoginPost(t *testing.T) {
 						"Cookie": []string{"id=mySession"},
 					},
 					PostForm: url.Values{
-						"csrf_token": []string{"myToken"},
+						"csrf_token": []string{csrf.Mask(token)},
 						"username":   []string{"admin"},
 						"password":   []string{"admin"},
 					},
@@ -229,7 +231,7 @@ func Test_handler_doLoginPost(t *testing.T) {
 				sessions: map[string]*session{
 					"mySession": {
 						ID:        "mySession",
-						CSRFToken: "myToken",
+						CSRFToken: token,
 						ExpireAt:  time.Now().Add(5 * time.Hour),
 					},
 				},
@@ -247,7 +249,7 @@ func Test_handler_doLoginPost(t *testing.T) {
 						"Cookie": []string{"id=mySession"},
 					},
 					PostForm: url.Values{
-						"csrf_token": []string{"myToken"},
+						"csrf_token": []string{csrf.Mask(token)},
 						"username":   []string{"notadmin"},
 						"password":   []string{"admin"},
 					},
