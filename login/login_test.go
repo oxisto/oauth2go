@@ -44,6 +44,7 @@ func Test_handler_doLoginGet(t *testing.T) {
 			fields: fields{
 				sessions: map[string]*session{},
 				files:    embedFS,
+				log:      log.Default(),
 			},
 			args: args{
 				r: &http.Request{
@@ -58,6 +59,7 @@ func Test_handler_doLoginGet(t *testing.T) {
 			fields: fields{
 				sessions: map[string]*session{},
 				files:    embedFS,
+				log:      log.Default(),
 			},
 			args: args{
 				r: &http.Request{
@@ -68,10 +70,11 @@ func Test_handler_doLoginGet(t *testing.T) {
 			wantBody: "form",
 		},
 		{
-			name: "Not existing session",
+			name: "Invalid session id",
 			fields: fields{
 				sessions: map[string]*session{},
 				files:    embedFS,
+				log:      log.Default(),
 			},
 			args: args{
 				r: &http.Request{
@@ -85,7 +88,7 @@ func Test_handler_doLoginGet(t *testing.T) {
 			wantBody: "form",
 		},
 		{
-			name: "Existing but expired session",
+			name: "Existing but expired user session",
 			fields: fields{
 				sessions: map[string]*session{
 					"mySession": {
@@ -97,6 +100,7 @@ func Test_handler_doLoginGet(t *testing.T) {
 					},
 				},
 				files: embedFS,
+				log:   log.Default(),
 			},
 			args: args{
 				r: &http.Request{
@@ -110,7 +114,7 @@ func Test_handler_doLoginGet(t *testing.T) {
 			wantBody: "form",
 		},
 		{
-			name: "Existing not expired session",
+			name: "Existing not expired user session",
 			fields: fields{
 				sessions: map[string]*session{
 					"mySession": {
@@ -122,6 +126,7 @@ func Test_handler_doLoginGet(t *testing.T) {
 					},
 				},
 				files: embedFS,
+				log:   log.Default(),
 			},
 			args: args{
 				r: &http.Request{
@@ -185,7 +190,13 @@ func Test_handler_doLoginPost(t *testing.T) {
 		{
 			name: "Existing user",
 			fields: fields{
-				sessions: make(map[string]*session),
+				sessions: map[string]*session{
+					"mySession": {
+						ID:        "mySession",
+						CSRFToken: "myToken",
+						ExpireAt:  time.Now().Add(5 * time.Hour),
+					},
+				},
 				users: []*User{
 					{Name: "admin", PasswordHash: string(hash)},
 				},
@@ -196,9 +207,13 @@ func Test_handler_doLoginPost(t *testing.T) {
 				r: &http.Request{
 					Method: "POST",
 					URL:    &url.URL{Host: "localhost", Path: "/login"},
+					Header: http.Header{
+						"Cookie": []string{"id=mySession"},
+					},
 					PostForm: url.Values{
-						"username": []string{"admin"},
-						"password": []string{"admin"},
+						"csrf_token": []string{"myToken"},
+						"username":   []string{"admin"},
+						"password":   []string{"admin"},
 					},
 				},
 			},
@@ -232,6 +247,7 @@ func Test_handler_doLoginPost(t *testing.T) {
 			wantHeader: http.Header{
 				http.CanonicalHeaderKey("Location"): []string{"/login?failed"},
 			},
+			wantCookie: true,
 		},
 	}
 
@@ -293,7 +309,9 @@ func Test_handler_ServeHTTP(t *testing.T) {
 		{
 			name: "GET request",
 			fields: fields{
-				files: embedFS,
+				files:    embedFS,
+				sessions: make(map[string]*session),
+				log:      log.Default(),
 			},
 			args: args{
 				r: &http.Request{
@@ -306,7 +324,9 @@ func Test_handler_ServeHTTP(t *testing.T) {
 		{
 			name: "invalid POST request, redirect to login page",
 			fields: fields{
-				files: embedFS,
+				files:    embedFS,
+				sessions: make(map[string]*session),
+				log:      log.Default(),
 			},
 			args: args{
 				r: &http.Request{

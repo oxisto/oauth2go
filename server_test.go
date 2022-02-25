@@ -84,14 +84,14 @@ func TestAuthorizationServer_retrieveClient(t *testing.T) {
 		wantErr bool
 	}{
 		{
-			name: "Missing authorization",
+			name: "missing authorization",
 			args: args{
 				r: &http.Request{},
 			},
 			wantErr: true,
 		},
 		{
-			name: "No base64 basic authorization",
+			name: "no base64 basic authorization",
 			args: args{
 				r: &http.Request{
 					Header: http.Header{
@@ -102,7 +102,7 @@ func TestAuthorizationServer_retrieveClient(t *testing.T) {
 			wantErr: true,
 		},
 		{
-			name: "Wrong basic authorization",
+			name: "wrong basic authorization",
 			args: args{
 				r: &http.Request{
 					Header: http.Header{
@@ -113,7 +113,7 @@ func TestAuthorizationServer_retrieveClient(t *testing.T) {
 			wantErr: true,
 		},
 		{
-			name: "Invalid client credentials",
+			name: "invalid client credentials",
 			args: args{
 				r: &http.Request{
 					Header: http.Header{
@@ -124,7 +124,7 @@ func TestAuthorizationServer_retrieveClient(t *testing.T) {
 			wantErr: true,
 		},
 		{
-			name: "Valid client credentials",
+			name: "valid client credentials",
 			fields: fields{
 				clients: []*Client{
 					{

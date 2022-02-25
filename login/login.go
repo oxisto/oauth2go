@@ -20,6 +20,7 @@ import (
 	"time"
 
 	oauth2 "github.com/oxisto/oauth2go"
+	"github.com/oxisto/oauth2go/login/csrf"
 )
 
 //go:embed login.html
@@ -32,10 +33,28 @@ type session struct {
 	User *User
 
 	ExpireAt time.Time
+
+	CSRFToken string
 }
 
 func (s *session) Expired() bool {
 	return s.ExpireAt.Before(time.Now())
+}
+
+func (s *session) Anonymous() bool {
+	return s.User == nil
+}
+
+func (s *session) Cookie(path string) *http.Cookie {
+	return &http.Cookie{
+		Name:     "id",
+		Value:    s.ID,
+		Path:     path,
+		Expires:  s.ExpireAt,
+		SameSite: http.SameSiteLaxMode,
+		Secure:   true,
+		HttpOnly: true,
+	}
 }
 
 type handler struct {
@@ -97,17 +116,22 @@ func (h *handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-func (h *handler) newSession(user *User) *session {
+func (h *handler) newSession(w http.ResponseWriter) *session {
 	// Generate a new session ID
 	var b = make([]byte, 32)
 	rand.Read(b)
 
 	id := base64.StdEncoding.EncodeToString(b)
 
+	// Generate a CSRF token
+	csrfToken := csrf.GenerateToken()
+
+	// A new session is always anonymous at first
 	session := session{
-		ID:       id,
-		User:     user,
-		ExpireAt: time.Now().Add(time.Minute * 24),
+		ID:        id,
+		User:      nil,
+		ExpireAt:  time.Now().Add(time.Minute * 24),
+		CSRFToken: csrfToken,
 	}
 
 	h.sm.Lock()
@@ -115,7 +139,21 @@ func (h *handler) newSession(user *User) *session {
 
 	h.sessions[id] = &session
 
+	http.SetCookie(w, session.Cookie(h.baseURL))
+
+	h.log.Printf("Generating new session with id %s", session.ID)
+
 	return &session
+}
+
+func (h *handler) updateSession(w http.ResponseWriter, session *session, user *User) {
+	h.sm.Lock()
+	session.User = user
+	h.sm.Unlock()
+
+	http.SetCookie(w, session.Cookie(h.baseURL))
+
+	h.log.Printf("Updating session with id %s to user %s", session.ID, user.Name)
 }
 
 // removeSession removes an (expired) session from the session storage
@@ -133,97 +171,79 @@ func (h *handler) removeSession(id string) {
 // If successful, it redirects to the base url.
 func (h *handler) doLoginGet(w http.ResponseWriter, r *http.Request) {
 	var (
-		err       error
-		ok        bool
 		returnURL string
-		cookie    *http.Cookie
 		session   *session
 		form      loginForm
 	)
 
-	// Retrive an optional return URL. Will default to the handler's base URL
+	// Retrieve an optional return URL. Will default to the handler's base URL
 	returnURL = h.parseReturnURL(r)
 
 	// Prepare the login form
 	form = loginForm{returnURL: returnURL, fs: h.files}
 
-	// Before any other checks, check if we have an indication that we were redirected
-	// here because of a failure
+	// Check, if we have an additional failure message
 	if r.URL.Query().Has("failed") {
 		// We display the login page with an error message
 		form.errorMessage = "Invalid credentials"
-		form.ServeHTTP(w, r)
-		return
 	}
 
-	// Check, if we have have a cookie
-	cookie, err = r.Cookie("id")
-	if err != nil {
+	// Extract our session (or potentially start a new one)
+	session = h.extractSession(w, r)
+
+	// At this point, we either have a (new) anonymous session or an existing user session
+	if session.Anonymous() {
+		// Our session is not logged in, so we display the login page
 		form.ServeHTTP(w, r)
-		return
+	} else {
+		// Seems like we have a valid user session. Woohoo. Nothing to do except redirecting
+		http.Redirect(w, r, returnURL, http.StatusFound)
 	}
-
-	// Check, if the cookie points to a valid (not expired) session
-	h.sm.RLock()
-	session, ok = h.sessions[cookie.Value]
-	h.sm.RUnlock()
-
-	if !ok {
-		// No session, so we display the login page
-		form.ServeHTTP(w, r)
-		return
-	}
-
-	if session.Expired() {
-		// Session is expired, so we remove it from our list and also display the login page
-		h.removeSession(session.ID)
-		form.ServeHTTP(w, r)
-		return
-	}
-
-	// Seems like we have a valid session. Woohoo. Nothing to do except redirecting
-	http.Redirect(w, r, returnURL, http.StatusFound)
 }
 
 func (h *handler) doLoginPost(w http.ResponseWriter, r *http.Request) {
 	var (
 		returnURL string
+		csrfToken string
 		user      *User
+		session   *session
 	)
 
 	// Parse the return URL
 	returnURL = h.parseReturnURL(r)
 
-	// Retrieve the user. Returns nil, if no user has been found with these credentials
+	// Retrieve our session.
+	session = h.extractSession(w, r)
+
+	// Retrieve our CSRF token
+	csrfToken = r.FormValue("csrf_token")
+
+	// We can only continue, if the token matches our stored CSRF token
+	//
+	// TODO: use masked token
+	if csrfToken != session.CSRFToken {
+		goto fail
+	}
+
+	// Retrieve the user with the supplied login data. Returns nil, if no user has been found with these credentials
 	user = h.user(r.FormValue("username"), r.FormValue("password"))
 	if user == nil {
-		url := path.Join(h.baseURL, "/login?failed")
-
-		// Redirect back to login page (but with an error message).
-		// We are using http.StatusSeeOther because we are changing the method from POST to GET
-		http.Redirect(w, r, url, http.StatusSeeOther)
-		return
+		goto fail
 	}
 
-	// Start a new session
-	session := h.newSession(user)
-
-	c := http.Cookie{
-		Name:     "id",
-		Value:    session.ID,
-		Path:     h.baseURL,
-		Expires:  session.ExpireAt,
-		SameSite: http.SameSiteLaxMode,
-		Secure:   true,
-		HttpOnly: true,
-	}
-
-	http.SetCookie(w, &c)
-
-	h.log.Printf("Generating new session with id %s", session.ID)
+	// Associate the user with the session and
+	h.updateSession(w, session, user)
 
 	// Everything good, lets redirect to the return URL.
 	http.Redirect(w, r, returnURL, http.StatusFound)
+	return
+
+fail:
+	url := path.Join(h.baseURL, "/login?failed")
+
+	// Redirect back to login page (but with an error message).
+	// We are using http.StatusSeeOther because we are changing the method from POST to GET
+	http.Redirect(w, r, url, http.StatusSeeOther)
 }
 
 func (h *handler) user(username string, password string) *User {
@@ -272,4 +292,45 @@ func (h *handler) parseReturnURL(r *http.Request) (returnURL string) {
 	}
 
 	return
+}
+
+// extractSession extracts a session from a HTTP request using a cookie or
+// establishes a new (anonymous) session, if no cookie was found or if
+// the session was invalid in some other way.
+func (h *handler) extractSession(w http.ResponseWriter, r *http.Request) (session *session) {
+	var (
+		cookie *http.Cookie
+		err    error
+		ok     bool
+	)
+
+	// Check, if we have have a cookie
+	cookie, err = r.Cookie("id")
+	if err != nil {
+		// No cookie was sent, so we start a new anonymous session
+		session = h.newSession(w)
+	} else {
+		// Check, if the cookie points to a valid (not expired) session
+		h.sm.RLock()
+		session, ok = h.sessions[cookie.Value]
+		h.sm.RUnlock()
+
+		if !ok {
+			// Start a new anonymous session
+			session = h.newSession(w)
+		}
+
+		if session.Expired() {
+			// Session is expired, so we remove it from our list
+			h.removeSession(session.ID)
+
+			// And start a new anonymous session
+			session = h.newSession(w)
+		}
+	}
+
+	// Make sure, to send the cookie with the session ID back to the client
+	http.SetCookie(w, session.Cookie(h.baseURL))
+
+	return session
 }
