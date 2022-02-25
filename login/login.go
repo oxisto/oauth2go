@@ -179,17 +179,17 @@ func (h *handler) doLoginGet(w http.ResponseWriter, r *http.Request) {
 	// Retrieve an optional return URL. Will default to the handler's base URL
 	returnURL = h.parseReturnURL(r)
 
+	// Extract our session (or potentially start a new one)
+	session = h.extractSession(w, r)
+
 	// Prepare the login form
-	form = loginForm{returnURL: returnURL, fs: h.files}
+	form = loginForm{returnURL: returnURL, fs: h.files, csrfToken: session.CSRFToken}
 
 	// Check, if we have an additional failure message
 	if r.URL.Query().Has("failed") {
 		// We display the login page with an error message
 		form.errorMessage = "Invalid credentials"
 	}
-
-	// Extract our session (or potentially start a new one)
-	session = h.extractSession(w, r)
 
 	// At this point, we either have a (new) anonymous session or an existing user session
 	if session.Anonymous() {
