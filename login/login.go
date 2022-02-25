@@ -31,6 +31,8 @@ var embedFS embed.FS
 type session struct {
 	ID string
 
+	// User is the user associated to this session. It can be nil, if the session is anonymous, e.g. the
+	// user has not logged in yet.
 	User *User
 
 	ExpireAt time.Time
@@ -38,14 +40,18 @@ type session struct {
 	CSRFToken string
 }
 
+// Expired can be used to check, if the session has expired.
 func (s *session) Expired() bool {
 	return s.ExpireAt.Before(time.Now())
 }
 
+// Anonymous can be used to check, if the session is anonymous, i.e., has no logged in user yet.
 func (s *session) Anonymous() bool {
 	return s.User == nil
 }
 
+// Cookie returns a new http.Cookie issued for path, that can contains the session ID
+// and sensible cookie attributes, such as Secure and HttpOnly.
 func (s *session) Cookie(path string) *http.Cookie {
 	return &http.Cookie{
 		Name:     "id",
@@ -117,7 +123,7 @@ func (h *handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-func (h *handler) newSession(w http.ResponseWriter) *session {
+func (h *handler) newSession() *session {
 	// Generate a new session ID
 	var b = make([]byte, 32)
 	rand.Read(b)
@@ -139,8 +145,6 @@ func (h *handler) newSession(w http.ResponseWriter) *session {
 	defer h.sm.Unlock()
 
 	h.sessions[id] = &session
-
-	http.SetCookie(w, session.Cookie(h.baseURL))
 
 	h.log.Printf("Generating new session with id %s", session.ID)
 
@@ -311,7 +315,7 @@ func (h *handler) extractSession(w http.ResponseWriter, r *http.Request) (sessio
 	cookie, err = r.Cookie("id")
 	if err != nil {
 		// No cookie was sent, so we start a new anonymous session
-		session = h.newSession(w)
+		session = h.newSession()
 	} else {
 		// Check, if the cookie points to a valid (not expired) session
 		h.sm.RLock()
@@ -320,7 +324,7 @@ func (h *handler) extractSession(w http.ResponseWriter, r *http.Request) (sessio
 
 		if !ok {
 			// Start a new anonymous session
-			session = h.newSession(w)
+			session = h.newSession()
 		}
 
 		if session.Expired() {
@@ -328,7 +332,7 @@ func (h *handler) extractSession(w http.ResponseWriter, r *http.Request) (sessio
 			h.removeSession(session.ID)
 
 			// And start a new anonymous session
-			session = h.newSession(w)
+			session = h.newSession()
 		}
 	}
 

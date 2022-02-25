@@ -32,6 +32,8 @@ func Mask(sessionToken string) string {
 	return base64.StdEncoding.EncodeToString(xor([]byte(sessionToken), []byte(toMask))) + string(toMask)
 }
 
+// Unmask extracts a potential session-wide token from a masked CSRF token. It returns an error
+// if the token is not of the correct length or if it contains illegal base64 characters.
 func Unmask(token string) (string, error) {
 	n := len(token)
 
@@ -49,6 +51,7 @@ func Unmask(token string) (string, error) {
 	return string(xor([]byte(mask), masked)), nil
 }
 
+// xor is a small utility function to xor two byte slices.
 func xor(x []byte, y []byte) (result []byte) {
 	var n = len(x)
 
