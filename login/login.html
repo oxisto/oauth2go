@@ -55,10 +55,11 @@
         <div class="error">{{.ErrorMessage}}</div>
         {{end}}
         <form action="/login" method="POST" autocomplete="off">
+            <input type="hidden" name="csrf_token" value="{{.CSRFToken}}">
+            <input type="hidden" name="return_url" value="{{.ReturnURL}}">
+
             <p><input type="text" id="username" name="username" placeholder="Username" /></p>
             <p><input type="password" id="password" name="password" placeholder="Password" /></p>
-
-            <input type="hidden" name="return_url" value="{{.ReturnURL}}">
 
             <input type="submit" value="Login">
         </form>

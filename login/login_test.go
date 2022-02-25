@@ -19,6 +19,7 @@ import (
 	"time"
 
 	oauth2 "github.com/oxisto/oauth2go"
+	"github.com/oxisto/oauth2go/login/csrf"
 	"golang.org/x/crypto/bcrypt"
 )
 
@@ -44,6 +45,7 @@ func Test_handler_doLoginGet(t *testing.T) {
 			fields: fields{
 				sessions: map[string]*session{},
 				files:    embedFS,
+				log:      log.Default(),
 			},
 			args: args{
 				r: &http.Request{
@@ -58,6 +60,7 @@ func Test_handler_doLoginGet(t *testing.T) {
 			fields: fields{
 				sessions: map[string]*session{},
 				files:    embedFS,
+				log:      log.Default(),
 			},
 			args: args{
 				r: &http.Request{
@@ -68,10 +71,11 @@ func Test_handler_doLoginGet(t *testing.T) {
 			wantBody: "form",
 		},
 		{
-			name: "Not existing session",
+			name: "Invalid session id",
 			fields: fields{
 				sessions: map[string]*session{},
 				files:    embedFS,
+				log:      log.Default(),
 			},
 			args: args{
 				r: &http.Request{
@@ -85,7 +89,7 @@ func Test_handler_doLoginGet(t *testing.T) {
 			wantBody: "form",
 		},
 		{
-			name: "Existing but expired session",
+			name: "Existing but expired user session",
 			fields: fields{
 				sessions: map[string]*session{
 					"mySession": {
@@ -97,6 +101,7 @@ func Test_handler_doLoginGet(t *testing.T) {
 					},
 				},
 				files: embedFS,
+				log:   log.Default(),
 			},
 			args: args{
 				r: &http.Request{
@@ -110,7 +115,7 @@ func Test_handler_doLoginGet(t *testing.T) {
 			wantBody: "form",
 		},
 		{
-			name: "Existing not expired session",
+			name: "Existing not expired user session",
 			fields: fields{
 				sessions: map[string]*session{
 					"mySession": {
@@ -122,6 +127,7 @@ func Test_handler_doLoginGet(t *testing.T) {
 					},
 				},
 				files: embedFS,
+				log:   log.Default(),
 			},
 			args: args{
 				r: &http.Request{
@@ -163,6 +169,7 @@ func Test_handler_doLoginGet(t *testing.T) {
 
 func Test_handler_doLoginPost(t *testing.T) {
 	var hash, _ = bcryptHasher{}.GenerateFromPassword([]byte("admin"), bcrypt.DefaultCost)
+	var token = csrf.GenerateToken()
 
 	type fields struct {
 		sessions map[string]*session
@@ -183,9 +190,15 @@ func Test_handler_doLoginPost(t *testing.T) {
 		wantCookie bool
 	}{
 		{
-			name: "Existing user",
+			name: "Existing user and valid CSRF",
 			fields: fields{
-				sessions: make(map[string]*session),
+				sessions: map[string]*session{
+					"mySession": {
+						ID:        "mySession",
+						CSRFToken: token,
+						ExpireAt:  time.Now().Add(5 * time.Hour),
+					},
+				},
 				users: []*User{
 					{Name: "admin", PasswordHash: string(hash)},
 				},
@@ -196,9 +209,13 @@ func Test_handler_doLoginPost(t *testing.T) {
 				r: &http.Request{
 					Method: "POST",
 					URL:    &url.URL{Host: "localhost", Path: "/login"},
+					Header: http.Header{
+						"Cookie": []string{"id=mySession"},
+					},
 					PostForm: url.Values{
-						"username": []string{"admin"},
-						"password": []string{"admin"},
+						"csrf_token": []string{csrf.Mask(token)},
+						"username":   []string{"admin"},
+						"password":   []string{"admin"},
 					},
 				},
 			},
@@ -209,9 +226,15 @@ func Test_handler_doLoginPost(t *testing.T) {
 			wantCookie: true,
 		},
 		{
-			name: "Invalid credentials",
+			name: "Invalid credentials and valid CSRF",
 			fields: fields{
-				sessions: make(map[string]*session),
+				sessions: map[string]*session{
+					"mySession": {
+						ID:        "mySession",
+						CSRFToken: token,
+						ExpireAt:  time.Now().Add(5 * time.Hour),
+					},
+				},
 				users: []*User{
 					{Name: "admin", PasswordHash: string(hash)},
 				},
@@ -222,9 +245,13 @@ func Test_handler_doLoginPost(t *testing.T) {
 				r: &http.Request{
 					Method: "POST",
 					URL:    &url.URL{Host: "localhost", Path: "/login"},
+					Header: http.Header{
+						"Cookie": []string{"id=mySession"},
+					},
 					PostForm: url.Values{
-						"username": []string{"notadmin"},
-						"password": []string{"admin"},
+						"csrf_token": []string{csrf.Mask(token)},
+						"username":   []string{"notadmin"},
+						"password":   []string{"admin"},
 					},
 				},
 			},
@@ -232,6 +259,75 @@ func Test_handler_doLoginPost(t *testing.T) {
 			wantHeader: http.Header{
 				http.CanonicalHeaderKey("Location"): []string{"/login?failed"},
 			},
+			wantCookie: true,
+		},
+		{
+			name: "Invalid CSRF length",
+			fields: fields{
+				sessions: map[string]*session{
+					"mySession": {
+						ID:        "mySession",
+						CSRFToken: "myToken",
+						ExpireAt:  time.Now().Add(5 * time.Hour),
+					},
+				},
+				users: []*User{
+					{Name: "admin", PasswordHash: string(hash)},
+				},
+				log: log.Default(),
+				pwh: bcryptHasher{},
+			},
+			args: args{
+				r: &http.Request{
+					Method: "POST",
+					URL:    &url.URL{Host: "localhost", Path: "/login"},
+					Header: http.Header{
+						"Cookie": []string{"id=mySession"},
+					},
+					PostForm: url.Values{
+						"csrf_token": []string{"myOtherToken"},
+					},
+				},
+			},
+			wantCode: http.StatusSeeOther,
+			wantHeader: http.Header{
+				http.CanonicalHeaderKey("Location"): []string{"/login?failed"},
+			},
+			wantCookie: true,
+		},
+		{
+			name: "Not matching CSRF",
+			fields: fields{
+				sessions: map[string]*session{
+					"mySession": {
+						ID:        "mySession",
+						CSRFToken: "myToken",
+						ExpireAt:  time.Now().Add(5 * time.Hour),
+					},
+				},
+				users: []*User{
+					{Name: "admin", PasswordHash: string(hash)},
+				},
+				log: log.Default(),
+				pwh: bcryptHasher{},
+			},
+			args: args{
+				r: &http.Request{
+					Method: "POST",
+					URL:    &url.URL{Host: "localhost", Path: "/login"},
+					Header: http.Header{
+						"Cookie": []string{"id=mySession"},
+					},
+					PostForm: url.Values{
+						"csrf_token": []string{csrf.Mask(csrf.GenerateToken())},
+					},
+				},
+			},
+			wantCode: http.StatusSeeOther,
+			wantHeader: http.Header{
+				http.CanonicalHeaderKey("Location"): []string{"/login?failed"},
+			},
+			wantCookie: true,
 		},
 	}
 
@@ -293,7 +389,9 @@ func Test_handler_ServeHTTP(t *testing.T) {
 		{
 			name: "GET request",
 			fields: fields{
-				files: embedFS,
+				files:    embedFS,
+				sessions: make(map[string]*session),
+				log:      log.Default(),
 			},
 			args: args{
 				r: &http.Request{
@@ -306,7 +404,9 @@ func Test_handler_ServeHTTP(t *testing.T) {
 		{
 			name: "invalid POST request, redirect to login page",
 			fields: fields{
-				files: embedFS,
+				files:    embedFS,
+				sessions: make(map[string]*session),
+				log:      log.Default(),
 			},
 			args: args{
 				r: &http.Request{

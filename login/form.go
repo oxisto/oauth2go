@@ -17,6 +17,9 @@ type loginForm struct {
 
 	// fs is the file system to retrieve the login html page from
 	fs fs.FS
+
+	// csrfToken is a mandatory CSRF token, which needs to be filled from the user's session
+	csrfToken string
 }
 
 func (form loginForm) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -29,6 +32,7 @@ func (form loginForm) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	err = tmpl.Execute(w, map[string]interface{}{
 		"ErrorMessage": form.errorMessage,
 		"ReturnURL":    form.returnURL,
+		"CSRFToken":    form.csrfToken,
 	})
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
