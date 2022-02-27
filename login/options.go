@@ -14,7 +14,11 @@ func WithLoginPage(opts ...handlerOption) oauth2.AuthorizationServerOption {
 	}
 
 	return func(srv *oauth2.AuthorizationServer) {
-		srv.Handler.(*http.ServeMux).Handle("/login", h)
+		h.srv = srv
+
+		mux := srv.Handler.(*http.ServeMux)
+		mux.Handle("/login", h)
+		mux.HandleFunc("/authorize", h.handleAuthorize)
 	}
 }
 

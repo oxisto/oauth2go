@@ -18,11 +18,15 @@ var ctx func(net.Listener) context.Context = nil
 func main() {
 	flag.Parse()
 
-	password := login.GeneratePassword()
+	password := oauth2.GenerateSecret()
 
 	log.Printf("Creating new user admin with password %s", password)
 
-	srv = oauth2.NewServer(fmt.Sprintf(":%d", *port), login.WithLoginPage(login.WithUser("admin", password)))
+	srv = oauth2.NewServer(
+		fmt.Sprintf(":%d", *port),
+		oauth2.WithClient("client", password),
+		login.WithLoginPage(login.WithUser("admin", password)),
+	)
 	srv.BaseContext = ctx
 
 	log.Printf("Creating new OAuth 2.0 server on :%d", *port)
