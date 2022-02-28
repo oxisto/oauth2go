@@ -18,8 +18,8 @@ import (
 
 func TestAuthorizationServer_handleToken(t *testing.T) {
 	type fields struct {
-		clients    []*Client
-		signingKey *ecdsa.PrivateKey
+		clients     []*Client
+		signingKeys []*ecdsa.PrivateKey
 	}
 	type args struct {
 		r *http.Request
@@ -53,8 +53,8 @@ func TestAuthorizationServer_handleToken(t *testing.T) {
 			rr := httptest.NewRecorder()
 
 			srv := &AuthorizationServer{
-				clients:    tt.fields.clients,
-				signingKey: tt.fields.signingKey,
+				clients:     tt.fields.clients,
+				signingKeys: tt.fields.signingKeys,
 			}
 			srv.handleToken(rr, tt.args.r)
 
@@ -68,8 +68,8 @@ func TestAuthorizationServer_handleToken(t *testing.T) {
 
 func TestAuthorizationServer_retrieveClient(t *testing.T) {
 	type fields struct {
-		clients    []*Client
-		signingKey *ecdsa.PrivateKey
+		clients     []*Client
+		signingKeys []*ecdsa.PrivateKey
 	}
 	type args struct {
 		r *http.Request
@@ -147,8 +147,8 @@ func TestAuthorizationServer_retrieveClient(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			srv := &AuthorizationServer{
-				clients:    tt.fields.clients,
-				signingKey: tt.fields.signingKey,
+				clients:     tt.fields.clients,
+				signingKeys: tt.fields.signingKeys,
 			}
 			got, err := srv.retrieveClient(tt.args.r)
 			if (err != nil) != tt.wantErr {
@@ -164,8 +164,8 @@ func TestAuthorizationServer_retrieveClient(t *testing.T) {
 
 func TestAuthorizationServer_handleJWKS(t *testing.T) {
 	type fields struct {
-		clients    []*Client
-		signingKey *ecdsa.PrivateKey
+		clients     []*Client
+		signingKeys []*ecdsa.PrivateKey
 	}
 	type args struct {
 		r *http.Request
@@ -180,11 +180,13 @@ func TestAuthorizationServer_handleJWKS(t *testing.T) {
 		{
 			name: "retrieve JWKS with GET",
 			fields: fields{
-				signingKey: &ecdsa.PrivateKey{
-					PublicKey: ecdsa.PublicKey{
-						Curve: elliptic.P256(),
-						X:     big.NewInt(1),
-						Y:     big.NewInt(2),
+				signingKeys: []*ecdsa.PrivateKey{
+					{
+						PublicKey: ecdsa.PublicKey{
+							Curve: elliptic.P256(),
+							X:     big.NewInt(1),
+							Y:     big.NewInt(2),
+						},
 					},
 				},
 			},
@@ -193,7 +195,7 @@ func TestAuthorizationServer_handleJWKS(t *testing.T) {
 			},
 			want: &JSONWebKeySet{
 				Keys: []JSONWebKey{{
-					Kid: "1",
+					Kid: "0",
 					Kty: "EC",
 					X:   "AQ",
 					Y:   "Ag",
@@ -215,8 +217,8 @@ func TestAuthorizationServer_handleJWKS(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			srv := &AuthorizationServer{
-				clients:    tt.fields.clients,
-				signingKey: tt.fields.signingKey,
+				clients:     tt.fields.clients,
+				signingKeys: tt.fields.signingKeys,
 			}
 
 			rr := httptest.NewRecorder()
@@ -286,8 +288,8 @@ func Test_writeJSON(t *testing.T) {
 
 func TestAuthorizationServer_doClientCredentialsFlow(t *testing.T) {
 	type fields struct {
-		clients    []*Client
-		signingKey *ecdsa.PrivateKey
+		clients     []*Client
+		signingKeys []*ecdsa.PrivateKey
 	}
 	type args struct {
 		r *http.Request
@@ -321,23 +323,25 @@ func TestAuthorizationServer_doClientCredentialsFlow(t *testing.T) {
 						clientSecret: "secret",
 					},
 				},
-				signingKey: &ecdsa.PrivateKey{
-					D: big.NewInt(1),
-					PublicKey: ecdsa.PublicKey{
-						X: big.NewInt(1),
-						Y: big.NewInt(1),
-						Curve: func() elliptic.Curve {
-							var c = elliptic.CurveParams{
-								N:  elliptic.P224().Params().N,
-								P:  elliptic.P224().Params().P,
-								B:  elliptic.P224().Params().B,
-								Gx: elliptic.P224().Params().Gx,
-								Gy: elliptic.P224().Params().Gy,
-							}
-							// Adjust bit size to make it a corrupt key
-							c.BitSize = 100
-							return &c
-						}(),
+				signingKeys: []*ecdsa.PrivateKey{
+					{
+						D: big.NewInt(1),
+						PublicKey: ecdsa.PublicKey{
+							X: big.NewInt(1),
+							Y: big.NewInt(1),
+							Curve: func() elliptic.Curve {
+								var c = elliptic.CurveParams{
+									N:  elliptic.P224().Params().N,
+									P:  elliptic.P224().Params().P,
+									B:  elliptic.P224().Params().B,
+									Gx: elliptic.P224().Params().Gx,
+									Gy: elliptic.P224().Params().Gy,
+								}
+								// Adjust bit size to make it a corrupt key
+								c.BitSize = 100
+								return &c
+							}(),
+						},
 					},
 				},
 			},
@@ -357,8 +361,8 @@ func TestAuthorizationServer_doClientCredentialsFlow(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			srv := &AuthorizationServer{
-				clients:    tt.fields.clients,
-				signingKey: tt.fields.signingKey,
+				clients:     tt.fields.clients,
+				signingKeys: tt.fields.signingKeys,
 			}
 
 			rr := httptest.NewRecorder()
@@ -379,9 +383,9 @@ func TestAuthorizationServer_doClientCredentialsFlow(t *testing.T) {
 
 func TestAuthorizationServer_doAuthorizationCodeFlow(t *testing.T) {
 	type fields struct {
-		clients    []*Client
-		signingKey *ecdsa.PrivateKey
-		codes      map[string]time.Time
+		clients     []*Client
+		signingKeys []*ecdsa.PrivateKey
+		codes       map[string]time.Time
 	}
 	type args struct {
 		r *http.Request
@@ -431,9 +435,9 @@ func TestAuthorizationServer_doAuthorizationCodeFlow(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			srv := &AuthorizationServer{
-				clients:    tt.fields.clients,
-				signingKey: tt.fields.signingKey,
-				codes:      tt.fields.codes,
+				clients:     tt.fields.clients,
+				signingKeys: tt.fields.signingKeys,
+				codes:       tt.fields.codes,
 			}
 			rr := httptest.NewRecorder()
 			srv.doAuthorizationCodeFlow(rr, tt.args.r)
@@ -453,9 +457,9 @@ func TestAuthorizationServer_doAuthorizationCodeFlow(t *testing.T) {
 
 func TestAuthorizationServer_ValidateCode(t *testing.T) {
 	type fields struct {
-		clients    []*Client
-		signingKey *ecdsa.PrivateKey
-		codes      map[string]time.Time
+		clients     []*Client
+		signingKeys []*ecdsa.PrivateKey
+		codes       map[string]time.Time
 	}
 	type args struct {
 		code string
@@ -506,9 +510,9 @@ func TestAuthorizationServer_ValidateCode(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			srv := &AuthorizationServer{
-				clients:    tt.fields.clients,
-				signingKey: tt.fields.signingKey,
-				codes:      tt.fields.codes,
+				clients:     tt.fields.clients,
+				signingKeys: tt.fields.signingKeys,
+				codes:       tt.fields.codes,
 			}
 			if got := srv.ValidateCode(tt.args.code); got != tt.want {
 				t.Errorf("AuthorizationServer.ValidateCode() = %v, want %v", got, tt.want)

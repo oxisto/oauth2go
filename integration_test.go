@@ -43,7 +43,7 @@ func TestIntegration(t *testing.T) {
 	log.Printf("Token: %s", token.AccessToken)
 
 	jwtoken, err := jwt.ParseWithClaims(token.AccessToken, &jwt.RegisteredClaims{}, func(t *jwt.Token) (interface{}, error) {
-		return srv.PublicKey(), nil
+		return srv.PublicKeys()[0], nil
 	})
 	if err != nil {
 		t.Errorf("Error while retrieving a token: %v", err)

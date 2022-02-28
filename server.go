@@ -33,8 +33,8 @@ type AuthorizationServer struct {
 	// our clients
 	clients []*Client
 
-	// our signing key
-	signingKey *ecdsa.PrivateKey
+	// our signing keys
+	signingKeys []*ecdsa.PrivateKey
 
 	// our codes and their expiry time
 	codes map[string]time.Time
@@ -73,7 +73,9 @@ func NewServer(addr string, opts ...AuthorizationServerOption) *AuthorizationSer
 	}
 
 	// Create a new private key
-	srv.signingKey, _ = ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	var signingKey, _ = ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+
+	srv.signingKeys = []*ecdsa.PrivateKey{signingKey}
 
 	mux.HandleFunc("/token", srv.handleToken)
 	mux.HandleFunc("/.well-known/jwks.json", srv.handleJWKS)
@@ -81,9 +83,15 @@ func NewServer(addr string, opts ...AuthorizationServerOption) *AuthorizationSer
 	return srv
 }
 
-// PublicKey returns the public key of the signing key of this authorization server.
-func (srv *AuthorizationServer) PublicKey() *ecdsa.PublicKey {
-	return &srv.signingKey.PublicKey
+// PublicKey returns the public keys of the signing key of this authorization server.
+func (srv *AuthorizationServer) PublicKeys() []*ecdsa.PublicKey {
+	var keys = []*ecdsa.PublicKey{}
+
+	for _, k := range srv.signingKeys {
+		keys = append(keys, &k.PublicKey)
+	}
+
+	return keys
 }
 
 func (srv *AuthorizationServer) handleToken(w http.ResponseWriter, r *http.Request) {
@@ -116,9 +124,8 @@ func (srv *AuthorizationServer) handleToken(w http.ResponseWriter, r *http.Reque
 func (srv *AuthorizationServer) doClientCredentialsFlow(w http.ResponseWriter, r *http.Request) {
 	var (
 		err    error
-		token  oauth2.Token
+		token  *oauth2.Token
 		client *Client
-		expiry time.Time
 	)
 
 	// Retrieve the client
@@ -129,23 +136,13 @@ func (srv *AuthorizationServer) doClientCredentialsFlow(w http.ResponseWriter, r
 		return
 	}
 
-	expiry = time.Now().Add(time.Hour * 24)
-
-	// Create a new JWT
-	t := jwt.NewWithClaims(jwt.SigningMethodES256, jwt.RegisteredClaims{
-		Subject:   client.clientID,
-		ExpiresAt: jwt.NewNumericDate(expiry),
-	})
-	t.Header["kid"] = 1
-
-	token.TokenType = "Bearer"
-	token.Expiry = expiry
-	if token.AccessToken, err = t.SignedString(srv.signingKey); err != nil {
+	token, err = generateToken(client.clientID, srv.signingKeys[0], nil)
+	if err != nil {
 		http.Error(w, "error while creating JWT", http.StatusInternalServerError)
 		return
 	}
 
-	writeJSON(w, &token)
+	writeJSON(w, token)
 }
 
 // doAuthorizationCodeFlow implements the Authorization Code Grant
@@ -154,9 +151,8 @@ func (srv *AuthorizationServer) doAuthorizationCodeFlow(w http.ResponseWriter, r
 	var (
 		err    error
 		code   string
-		token  oauth2.Token
+		token  *oauth2.Token
 		client *Client
-		expiry time.Time
 	)
 
 	// Retrieve the client
@@ -174,39 +170,18 @@ func (srv *AuthorizationServer) doAuthorizationCodeFlow(w http.ResponseWriter, r
 		return
 	}
 
-	expiry = time.Now().Add(time.Hour * 24)
-
-	// Create a new JWT
-	t := jwt.NewWithClaims(jwt.SigningMethodES256, jwt.RegisteredClaims{
-		Subject:   client.clientID,
-		ExpiresAt: jwt.NewNumericDate(expiry),
-	})
-	t.Header["kid"] = 1
-
-	token.TokenType = "Bearer"
-	token.Expiry = expiry
-	if token.AccessToken, err = t.SignedString(srv.signingKey); err != nil {
+	token, err = generateToken(client.clientID, srv.signingKeys[0], srv.signingKeys[0])
+	if err != nil {
 		http.Error(w, "error while creating JWT", http.StatusInternalServerError)
 		return
 	}
 
-	t = jwt.NewWithClaims(jwt.SigningMethodES256, jwt.RegisteredClaims{
-		Subject: client.clientID,
-	})
-	t.Header["kid"] = 1
-
-	if token.RefreshToken, err = t.SignedString(srv.signingKey); err != nil {
-		http.Error(w, "error while creating JWT", http.StatusInternalServerError)
-		return
-	}
-
-	writeJSON(w, &token)
+	writeJSON(w, token)
 }
 
 func (srv *AuthorizationServer) handleJWKS(w http.ResponseWriter, r *http.Request) {
 	var (
-		publicKey *ecdsa.PublicKey
-		keySet    *JSONWebKeySet
+		keySet *JSONWebKeySet
 	)
 
 	if r.Method != "GET" {
@@ -214,17 +189,16 @@ func (srv *AuthorizationServer) handleJWKS(w http.ResponseWriter, r *http.Reques
 		return
 	}
 
-	publicKey = srv.PublicKey()
+	keySet = &JSONWebKeySet{Keys: []JSONWebKey{}}
 
-	keySet = &JSONWebKeySet{
-		Keys: []JSONWebKey{
-			{
-				Kid: "1",
+	for kid, key := range srv.PublicKeys() {
+		keySet.Keys = append(keySet.Keys,
+			JSONWebKey{
+				Kid: fmt.Sprintf("%d", kid),
 				Kty: "EC",
-				X:   base64.RawURLEncoding.EncodeToString(publicKey.X.Bytes()),
-				Y:   base64.RawURLEncoding.EncodeToString(publicKey.Y.Bytes()),
-			},
-		},
+				X:   base64.RawURLEncoding.EncodeToString(key.X.Bytes()),
+				Y:   base64.RawURLEncoding.EncodeToString(key.Y.Bytes()),
+			})
 	}
 
 	writeJSON(w, keySet)
@@ -313,4 +287,41 @@ func GenerateSecret() string {
 	rand.Read(b)
 
 	return base64.RawStdEncoding.EncodeToString(b)
+}
+
+// generateToken generates a Token (comprising at least an acesss token) for a specific client,
+// as specified by its ID. A signingKey needs to be specified, otherwise an error is thrown.
+// Optionally, if a refreshKey is specified, that key is used to also create a refresh token.
+func generateToken(clientID string, signingKey *ecdsa.PrivateKey, refreshKey *ecdsa.PrivateKey) (token *Token, err error) {
+	var expiry = time.Now().Add(24 * time.Hour)
+
+	token = new(oauth2.Token)
+
+	token.TokenType = "Bearer"
+	token.Expiry = expiry
+
+	// Create a new JWT
+	t := jwt.NewWithClaims(jwt.SigningMethodES256, jwt.RegisteredClaims{
+		Subject:   clientID,
+		ExpiresAt: jwt.NewNumericDate(expiry),
+	})
+	t.Header["kid"] = 1
+
+	if token.AccessToken, err = t.SignedString(signingKey); err != nil {
+		return nil, err
+	}
+
+	// Create a refresh token, if we have a key for it
+	if refreshKey != nil {
+		t = jwt.NewWithClaims(jwt.SigningMethodES256, jwt.RegisteredClaims{
+			Subject: clientID,
+		})
+		t.Header["kid"] = 1
+
+		if token.RefreshToken, err = t.SignedString(refreshKey); err != nil {
+			return nil, err
+		}
+	}
+
+	return
 }
