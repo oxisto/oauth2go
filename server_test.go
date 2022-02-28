@@ -11,6 +11,7 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/oxisto/oauth2go/internal/mock"
 )
@@ -371,6 +372,146 @@ func TestAuthorizationServer_doClientCredentialsFlow(t *testing.T) {
 			gotBody := strings.Trim(rr.Body.String(), "\n")
 			if gotBody != tt.wantBody {
 				t.Errorf("AuthorizationServer.doClientCredentialsFlow() body = %v, wantBody %v", gotBody, tt.wantBody)
+			}
+		})
+	}
+}
+
+func TestAuthorizationServer_doAuthorizationCodeFlow(t *testing.T) {
+	type fields struct {
+		clients    []*Client
+		signingKey *ecdsa.PrivateKey
+		codes      map[string]time.Time
+	}
+	type args struct {
+		r *http.Request
+	}
+	tests := []struct {
+		name     string
+		fields   fields
+		args     args
+		wantCode int
+		wantBody string
+	}{
+		{
+			name: "missing or invalid authorization",
+			args: args{
+				r: &http.Request{
+					Method: "POST",
+					Header: http.Header{
+						http.CanonicalHeaderKey("Authorization"): []string{"notvalid"},
+					},
+				},
+			},
+			wantCode: http.StatusUnauthorized,
+			wantBody: `{"error": "invalid_client"}`,
+		},
+		{
+			name: "correct authorization but invalid code",
+			fields: fields{
+				clients: []*Client{
+					{
+						clientID:     "client",
+						clientSecret: "secret",
+					},
+				},
+			},
+			args: args{
+				r: &http.Request{
+					Method: "POST",
+					Header: http.Header{
+						http.CanonicalHeaderKey("Authorization"): []string{"Basic Y2xpZW50OnNlY3JldA=="}, // client:secret
+					},
+				},
+			},
+			wantCode: 400,
+			wantBody: `{"error": "invalid_grant"}`,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			srv := &AuthorizationServer{
+				clients:    tt.fields.clients,
+				signingKey: tt.fields.signingKey,
+				codes:      tt.fields.codes,
+			}
+			rr := httptest.NewRecorder()
+			srv.doAuthorizationCodeFlow(rr, tt.args.r)
+
+			gotCode := rr.Code
+			if gotCode != tt.wantCode {
+				t.Errorf("AuthorizationServer.doClientCredentialsFlow() code = %v, wantCode %v", gotCode, tt.wantCode)
+			}
+
+			gotBody := strings.Trim(rr.Body.String(), "\n")
+			if gotBody != tt.wantBody {
+				t.Errorf("AuthorizationServer.doClientCredentialsFlow() body = %v, wantBody %v", gotBody, tt.wantBody)
+			}
+		})
+	}
+}
+
+func TestAuthorizationServer_ValidateCode(t *testing.T) {
+	type fields struct {
+		clients    []*Client
+		signingKey *ecdsa.PrivateKey
+		codes      map[string]time.Time
+	}
+	type args struct {
+		code string
+	}
+	tests := []struct {
+		name   string
+		fields fields
+		args   args
+		want   bool
+	}{
+		{
+			name: "code is not existing",
+			fields: fields{
+				codes: map[string]time.Time{
+					"myCode": time.Now().Add(10 * time.Minute),
+				},
+			},
+			args: args{
+				code: "myOtherCode",
+			},
+			want: false,
+		},
+		{
+			name: "code is expired",
+			fields: fields{
+				codes: map[string]time.Time{
+					"myCode": time.Now().Add(-10 * time.Minute),
+				},
+			},
+			args: args{
+				code: "myCode",
+			},
+			want: false,
+		},
+		{
+			name: "code is ok",
+			fields: fields{
+				codes: map[string]time.Time{
+					"myCode": time.Now().Add(10 * time.Minute),
+				},
+			},
+			args: args{
+				code: "myCode",
+			},
+			want: true,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			srv := &AuthorizationServer{
+				clients:    tt.fields.clients,
+				signingKey: tt.fields.signingKey,
+				codes:      tt.fields.codes,
+			}
+			if got := srv.ValidateCode(tt.args.code); got != tt.want {
+				t.Errorf("AuthorizationServer.ValidateCode() = %v, want %v", got, tt.want)
 			}
 		})
 	}
