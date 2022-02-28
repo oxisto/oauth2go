@@ -119,16 +119,16 @@ func Test_handler_handleAuthorize(t *testing.T) {
 			},
 		},
 		{
-			name: "missing code challenge",
+			name: "missing code challenge for public client",
 			fields: fields{
 				sessions: map[string]*session{},
 				users:    []*User{},
 				log:      log.Default(),
 				pwh:      bcryptHasher{},
-				srv:      oauth2.NewServer(":0", oauth2.WithClient("client", "secret", "/test")),
+				srv:      oauth2.NewServer(":0", oauth2.WithClient("public", "", "/test")),
 			},
 			args: args{
-				r: httptest.NewRequest("GET", "/authorize?client_id=client&redirect_uri=/test&response_type=code", nil),
+				r: httptest.NewRequest("GET", "/authorize?client_id=public&redirect_uri=/test&response_type=code", nil),
 			},
 			wantCode: http.StatusFound,
 			wantHeaderRegexp: http.Header{
@@ -136,16 +136,16 @@ func Test_handler_handleAuthorize(t *testing.T) {
 			},
 		},
 		{
-			name: "invalid code challenge method",
+			name: "invalid code challenge method for public client",
 			fields: fields{
 				sessions: map[string]*session{},
 				users:    []*User{},
 				log:      log.Default(),
 				pwh:      bcryptHasher{},
-				srv:      oauth2.NewServer(":0", oauth2.WithClient("client", "secret", "/test")),
+				srv:      oauth2.NewServer(":0", oauth2.WithClient("public", "", "/test")),
 			},
 			args: args{
-				r: httptest.NewRequest("GET", "/authorize?client_id=client&redirect_uri=/test&response_type=code&code_challenge=0123456789&code_challenge_method=WHAT", nil),
+				r: httptest.NewRequest("GET", "/authorize?client_id=public&redirect_uri=/test&response_type=code&code_challenge=0123456789&code_challenge_method=WHAT", nil),
 			},
 			wantCode: http.StatusFound,
 			wantHeaderRegexp: http.Header{
