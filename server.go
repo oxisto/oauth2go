@@ -179,7 +179,7 @@ func (srv *AuthorizationServer) doAuthorizationCodeFlow(w http.ResponseWriter, r
 
 	// Retrieve the code verifier. It is REQUIRED for public clients
 	verifier = r.FormValue("code_verifier")
-	if client.ClientSecret == "" && verifier == "" {
+	if client.Public() && verifier == "" {
 		Error(w, ErrorInvalidRequest, http.StatusBadRequest)
 		return
 	}
@@ -298,9 +298,8 @@ func (srv *AuthorizationServer) ValidateCode(verifier string, code string) bool 
 		return false
 	}
 
-	var cmpChallenge = base64.URLEncoding.EncodeToString(sha256.New().Sum([]byte(verifier)))
-
-	if subtle.ConstantTimeCompare([]byte(cmpChallenge), []byte(info.challenge)) == 0 {
+	// Check, if we need to check for a challenge
+	if info.challenge != "" && subtle.ConstantTimeCompare([]byte(base64.URLEncoding.EncodeToString(sha256.New().Sum([]byte(verifier)))), []byte(info.challenge)) == 0 {
 		return false
 	}
 

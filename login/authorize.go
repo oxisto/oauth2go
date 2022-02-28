@@ -41,13 +41,13 @@ func (h *handler) handleAuthorize(w http.ResponseWriter, r *http.Request) {
 	}
 
 	challenge = query.Get("code_challenge")
-	if challenge == "" {
+	if client.Public() && challenge == "" {
 		oauth2.RedirectError(w, r, redirectURI, "invalid_request", "Code challenge is required")
 		return
 	}
 
 	method = query.Get("code_challenge_method")
-	if method != "S256" {
+	if client.Public() && method != "S256" {
 		oauth2.RedirectError(w, r, redirectURI, "invalid_request", "Only transform algorithm S265 is supported")
 		return
 	}

@@ -57,7 +57,7 @@ func TestIntegration(t *testing.T) {
 	log.Printf("JWT: %+v", jwtoken)
 }
 
-func TestThreeLeggedFlow(t *testing.T) {
+func TestThreeLeggedFlowPublicClient(t *testing.T) {
 	var (
 		res       *http.Response
 		req       *http.Request
@@ -119,7 +119,7 @@ func TestThreeLeggedFlow(t *testing.T) {
 	}
 
 	if session == nil {
-		t.Errorf("Error session is nil:")
+		t.Errorf("Error session is nil")
 	}
 
 	// Parse the HTML body to look for the csrf_token
@@ -156,6 +156,109 @@ func TestThreeLeggedFlow(t *testing.T) {
 	token, err = config.Exchange(context.Background(),
 		code,
 		oauth2.SetAuthURLParam("code_verifier", verifier),
+	)
+	if err != nil {
+		t.Errorf("Error while Exchange: %v", err)
+	}
+
+	if token.AccessToken == "" {
+		t.Error("Access token is empty", err)
+	}
+
+	if token.RefreshToken == "" {
+		t.Error("Access token is empty", err)
+	}
+}
+
+func TestThreeLeggedFlowConfidentialClient(t *testing.T) {
+	var (
+		res     *http.Response
+		req     *http.Request
+		client  *http.Client
+		form    url.Values
+		session *http.Cookie
+		token   *oauth2.Token
+		code    string
+	)
+
+	srv := oauth2.NewServer(":0",
+		oauth2.WithClient("client", "secret", "/test"),
+		login.WithLoginPage(login.WithUser("admin", "admin")),
+	)
+
+	ln, err := net.Listen("tcp", srv.Addr)
+	if err != nil {
+		t.Errorf("Error while listening key: %v", err)
+	}
+
+	port := ln.Addr().(*net.TCPAddr).Port
+
+	go srv.Serve(ln)
+	defer srv.Close()
+
+	config := oauth2.Config{
+		ClientID:     "client",
+		ClientSecret: "secret",
+		Endpoint: oauth2.Endpoint{
+			AuthURL:  fmt.Sprintf("http://localhost:%d/authorize", port),
+			TokenURL: fmt.Sprintf("http://localhost:%d/token", port),
+		},
+		RedirectURL: "/test",
+	}
+
+	// Let's pretend to be a browser
+	res, err = http.Get(config.AuthCodeURL("some-state"))
+	if err != nil {
+		t.Errorf("Error while POST /authorize: %v", err)
+	}
+
+	// We are interested in two things
+	// - The session ID (or the cookie)
+	// - The CSRF token
+	for _, c := range res.Cookies() {
+		if c.Name == "id" {
+			session = c
+			break
+		}
+	}
+
+	if session == nil {
+		t.Errorf("Error session is nil")
+	}
+
+	// Parse the HTML body to look for the csrf_token
+	root, _ := html.Parse(res.Body)
+
+	form = url.Values{}
+	walker := func(node *html.Node) {
+		if node.Type == html.ElementNode &&
+			node.Data == "input" &&
+			len(node.Attr) == 3 {
+			form.Add(node.Attr[1].Val, node.Attr[2].Val)
+		}
+	}
+
+	traverse(root, walker)
+
+	form.Add("username", "admin")
+	form.Add("password", "admin")
+
+	req, _ = http.NewRequest("POST", fmt.Sprintf("http://localhost:%d/login", port), strings.NewReader(form.Encode()))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req.AddCookie(session)
+
+	// Let's POST our login
+	client = &http.Client{}
+	res, err = client.Do(req)
+	if err != nil {
+		t.Errorf("Error while POST /login: %v", err)
+	}
+
+	// Extract the code from the response
+	code = res.Request.URL.Query().Get("code")
+
+	token, err = config.Exchange(context.Background(),
+		code,
 	)
 	if err != nil {
 		t.Errorf("Error while Exchange: %v", err)
