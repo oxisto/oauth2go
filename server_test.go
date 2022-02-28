@@ -5,20 +5,50 @@ import (
 	"crypto/elliptic"
 	"encoding/json"
 	"errors"
+	"io"
 	"math/big"
 	"net/http"
 	"net/http/httptest"
 	"reflect"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/oxisto/oauth2go/internal/mock"
 )
 
+var badSigningKey = ecdsa.PrivateKey{
+	D: big.NewInt(1),
+	PublicKey: ecdsa.PublicKey{
+		X: big.NewInt(1),
+		Y: big.NewInt(1),
+		Curve: func() elliptic.Curve {
+			var c = elliptic.CurveParams{
+				N:  elliptic.P224().Params().N,
+				P:  elliptic.P224().Params().P,
+				B:  elliptic.P224().Params().B,
+				Gx: elliptic.P224().Params().Gx,
+				Gy: elliptic.P224().Params().Gy,
+			}
+			// Adjust bit size to make it a corrupt key
+			c.BitSize = 100
+			return &c
+		}(),
+	},
+}
+var mockSigningKey = ecdsa.PrivateKey{
+	D: big.NewInt(1),
+	PublicKey: ecdsa.PublicKey{
+		X:     big.NewInt(1),
+		Y:     big.NewInt(2),
+		Curve: elliptic.P256(),
+	},
+}
+
 func TestAuthorizationServer_handleToken(t *testing.T) {
 	type fields struct {
-		clients    []*Client
-		signingKey *ecdsa.PrivateKey
+		clients     []*Client
+		signingKeys []*ecdsa.PrivateKey
 	}
 	type args struct {
 		r *http.Request
@@ -52,8 +82,8 @@ func TestAuthorizationServer_handleToken(t *testing.T) {
 			rr := httptest.NewRecorder()
 
 			srv := &AuthorizationServer{
-				clients:    tt.fields.clients,
-				signingKey: tt.fields.signingKey,
+				clients:     tt.fields.clients,
+				signingKeys: tt.fields.signingKeys,
 			}
 			srv.handleToken(rr, tt.args.r)
 
@@ -67,8 +97,8 @@ func TestAuthorizationServer_handleToken(t *testing.T) {
 
 func TestAuthorizationServer_retrieveClient(t *testing.T) {
 	type fields struct {
-		clients    []*Client
-		signingKey *ecdsa.PrivateKey
+		clients     []*Client
+		signingKeys []*ecdsa.PrivateKey
 	}
 	type args struct {
 		r *http.Request
@@ -125,8 +155,8 @@ func TestAuthorizationServer_retrieveClient(t *testing.T) {
 			fields: fields{
 				clients: []*Client{
 					{
-						clientID:     "client",
-						clientSecret: "secret",
+						ClientID:     "client",
+						ClientSecret: "secret",
 					},
 				},
 			},
@@ -138,16 +168,16 @@ func TestAuthorizationServer_retrieveClient(t *testing.T) {
 				},
 			},
 			want: &Client{
-				clientID:     "client",
-				clientSecret: "secret",
+				ClientID:     "client",
+				ClientSecret: "secret",
 			},
 		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			srv := &AuthorizationServer{
-				clients:    tt.fields.clients,
-				signingKey: tt.fields.signingKey,
+				clients:     tt.fields.clients,
+				signingKeys: tt.fields.signingKeys,
 			}
 			got, err := srv.retrieveClient(tt.args.r)
 			if (err != nil) != tt.wantErr {
@@ -163,8 +193,8 @@ func TestAuthorizationServer_retrieveClient(t *testing.T) {
 
 func TestAuthorizationServer_handleJWKS(t *testing.T) {
 	type fields struct {
-		clients    []*Client
-		signingKey *ecdsa.PrivateKey
+		clients     []*Client
+		signingKeys []*ecdsa.PrivateKey
 	}
 	type args struct {
 		r *http.Request
@@ -179,11 +209,13 @@ func TestAuthorizationServer_handleJWKS(t *testing.T) {
 		{
 			name: "retrieve JWKS with GET",
 			fields: fields{
-				signingKey: &ecdsa.PrivateKey{
-					PublicKey: ecdsa.PublicKey{
-						Curve: elliptic.P256(),
-						X:     big.NewInt(1),
-						Y:     big.NewInt(2),
+				signingKeys: []*ecdsa.PrivateKey{
+					{
+						PublicKey: ecdsa.PublicKey{
+							Curve: elliptic.P256(),
+							X:     big.NewInt(1),
+							Y:     big.NewInt(2),
+						},
 					},
 				},
 			},
@@ -192,7 +224,7 @@ func TestAuthorizationServer_handleJWKS(t *testing.T) {
 			},
 			want: &JSONWebKeySet{
 				Keys: []JSONWebKey{{
-					Kid: "1",
+					Kid: "0",
 					Kty: "EC",
 					X:   "AQ",
 					Y:   "Ag",
@@ -214,8 +246,8 @@ func TestAuthorizationServer_handleJWKS(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			srv := &AuthorizationServer{
-				clients:    tt.fields.clients,
-				signingKey: tt.fields.signingKey,
+				clients:     tt.fields.clients,
+				signingKeys: tt.fields.signingKeys,
 			}
 
 			rr := httptest.NewRecorder()
@@ -285,8 +317,8 @@ func Test_writeJSON(t *testing.T) {
 
 func TestAuthorizationServer_doClientCredentialsFlow(t *testing.T) {
 	type fields struct {
-		clients    []*Client
-		signingKey *ecdsa.PrivateKey
+		clients     []*Client
+		signingKeys []*ecdsa.PrivateKey
 	}
 	type args struct {
 		r *http.Request
@@ -316,28 +348,12 @@ func TestAuthorizationServer_doClientCredentialsFlow(t *testing.T) {
 			fields: fields{
 				clients: []*Client{
 					{
-						clientID:     "client",
-						clientSecret: "secret",
+						ClientID:     "client",
+						ClientSecret: "secret",
 					},
 				},
-				signingKey: &ecdsa.PrivateKey{
-					D: big.NewInt(1),
-					PublicKey: ecdsa.PublicKey{
-						X: big.NewInt(1),
-						Y: big.NewInt(1),
-						Curve: func() elliptic.Curve {
-							var c = elliptic.CurveParams{
-								N:  elliptic.P224().Params().N,
-								P:  elliptic.P224().Params().P,
-								B:  elliptic.P224().Params().B,
-								Gx: elliptic.P224().Params().Gx,
-								Gy: elliptic.P224().Params().Gy,
-							}
-							// Adjust bit size to make it a corrupt key
-							c.BitSize = 100
-							return &c
-						}(),
-					},
+				signingKeys: []*ecdsa.PrivateKey{
+					&badSigningKey,
 				},
 			},
 			args: args{
@@ -356,8 +372,8 @@ func TestAuthorizationServer_doClientCredentialsFlow(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			srv := &AuthorizationServer{
-				clients:    tt.fields.clients,
-				signingKey: tt.fields.signingKey,
+				clients:     tt.fields.clients,
+				signingKeys: tt.fields.signingKeys,
 			}
 
 			rr := httptest.NewRecorder()
@@ -371,6 +387,233 @@ func TestAuthorizationServer_doClientCredentialsFlow(t *testing.T) {
 			gotBody := strings.Trim(rr.Body.String(), "\n")
 			if gotBody != tt.wantBody {
 				t.Errorf("AuthorizationServer.doClientCredentialsFlow() body = %v, wantBody %v", gotBody, tt.wantBody)
+			}
+		})
+	}
+}
+
+func TestAuthorizationServer_doAuthorizationCodeFlow(t *testing.T) {
+	type fields struct {
+		clients     []*Client
+		signingKeys []*ecdsa.PrivateKey
+		codes       map[string]time.Time
+	}
+	type args struct {
+		r *http.Request
+	}
+	tests := []struct {
+		name     string
+		fields   fields
+		args     args
+		wantCode int
+		wantBody string
+	}{
+		{
+			name: "missing or invalid authorization",
+			args: args{
+				r: &http.Request{
+					Method: "POST",
+					Header: http.Header{
+						http.CanonicalHeaderKey("Authorization"): []string{"notvalid"},
+					},
+				},
+			},
+			wantCode: http.StatusUnauthorized,
+			wantBody: `{"error": "invalid_client"}`,
+		},
+		{
+			name: "correct authorization but invalid code",
+			fields: fields{
+				clients: []*Client{
+					{
+						ClientID:     "client",
+						ClientSecret: "secret",
+					},
+				},
+				codes: map[string]time.Time{
+					"myCode": time.Now().Add(10 * time.Minute),
+				},
+			},
+			args: args{
+				r: &http.Request{
+					Method: "POST",
+					Header: http.Header{
+						http.CanonicalHeaderKey("Authorization"): []string{"Basic Y2xpZW50OnNlY3JldA=="}, // client:secret
+						http.CanonicalHeaderKey("Content-Type"):  []string{"application/x-www-form-urlencoded"},
+					},
+					Body: io.NopCloser(strings.NewReader("code=myOtherCode")),
+				},
+			},
+			wantCode: 400,
+			wantBody: `{"error": "invalid_grant"}`,
+		},
+		{
+			name: "problem with JWT",
+			fields: fields{
+				clients: []*Client{
+					{
+						ClientID:     "client",
+						ClientSecret: "secret",
+					},
+				},
+				codes: map[string]time.Time{
+					"myCode": time.Now().Add(10 * time.Minute),
+				},
+				signingKeys: []*ecdsa.PrivateKey{
+					&badSigningKey,
+				},
+			},
+			args: args{
+				r: &http.Request{
+					Method: "POST",
+					Header: http.Header{
+						http.CanonicalHeaderKey("Authorization"): []string{"Basic Y2xpZW50OnNlY3JldA=="}, // client:secret
+						http.CanonicalHeaderKey("Content-Type"):  []string{"application/x-www-form-urlencoded"},
+					},
+					Body: io.NopCloser(strings.NewReader("code=myCode")),
+				},
+			},
+			wantCode: 500,
+			wantBody: `error while creating JWT`,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			srv := &AuthorizationServer{
+				clients:     tt.fields.clients,
+				signingKeys: tt.fields.signingKeys,
+				codes:       tt.fields.codes,
+			}
+			rr := httptest.NewRecorder()
+			srv.doAuthorizationCodeFlow(rr, tt.args.r)
+
+			gotCode := rr.Code
+			if gotCode != tt.wantCode {
+				t.Errorf("AuthorizationServer.doClientCredentialsFlow() code = %v, wantCode %v", gotCode, tt.wantCode)
+			}
+
+			gotBody := strings.Trim(rr.Body.String(), "\n")
+			if gotBody != tt.wantBody {
+				t.Errorf("AuthorizationServer.doClientCredentialsFlow() body = %v, wantBody %v", gotBody, tt.wantBody)
+			}
+		})
+	}
+}
+
+func TestAuthorizationServer_ValidateCode(t *testing.T) {
+	type fields struct {
+		clients     []*Client
+		signingKeys []*ecdsa.PrivateKey
+		codes       map[string]time.Time
+	}
+	type args struct {
+		code string
+	}
+	tests := []struct {
+		name   string
+		fields fields
+		args   args
+		want   bool
+	}{
+		{
+			name: "code is not existing",
+			fields: fields{
+				codes: map[string]time.Time{
+					"myCode": time.Now().Add(10 * time.Minute),
+				},
+			},
+			args: args{
+				code: "myOtherCode",
+			},
+			want: false,
+		},
+		{
+			name: "code is expired",
+			fields: fields{
+				codes: map[string]time.Time{
+					"myCode": time.Now().Add(-10 * time.Minute),
+				},
+			},
+			args: args{
+				code: "myCode",
+			},
+			want: false,
+		},
+		{
+			name: "code is ok",
+			fields: fields{
+				codes: map[string]time.Time{
+					"myCode": time.Now().Add(10 * time.Minute),
+				},
+			},
+			args: args{
+				code: "myCode",
+			},
+			want: true,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			srv := &AuthorizationServer{
+				clients:     tt.fields.clients,
+				signingKeys: tt.fields.signingKeys,
+				codes:       tt.fields.codes,
+			}
+			if got := srv.ValidateCode(tt.args.code); got != tt.want {
+				t.Errorf("AuthorizationServer.ValidateCode() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
+func Test_generateToken(t *testing.T) {
+	type args struct {
+		clientID     string
+		signingKey   *ecdsa.PrivateKey
+		signingKeyID int
+		refreshKey   *ecdsa.PrivateKey
+		refreshKeyID int
+	}
+	tests := []struct {
+		name      string
+		args      args
+		wantToken *Token
+		wantErr   bool
+	}{
+		{
+			name: "bad signing key",
+			args: args{
+				clientID:     "client",
+				signingKey:   &badSigningKey,
+				signingKeyID: 0,
+			},
+			wantToken: nil,
+			wantErr:   true,
+		},
+		{
+			name: "bad refresh key",
+			args: args{
+				clientID:     "client",
+				signingKey:   &mockSigningKey,
+				signingKeyID: 0,
+				refreshKey:   &badSigningKey,
+				refreshKeyID: 0,
+			},
+			wantToken: nil,
+			wantErr:   true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			gotToken, err := generateToken(tt.args.clientID, tt.args.signingKey, tt.args.signingKeyID, tt.args.refreshKey, tt.args.refreshKeyID)
+			if (err != nil) != tt.wantErr {
+				t.Errorf("generateToken() error = %v, wantErr %v", err, tt.wantErr)
+				return
+			}
+
+			if !reflect.DeepEqual(gotToken, tt.wantToken) {
+				t.Errorf("generateToken() = %v, want %v", gotToken, tt.wantToken)
 			}
 		})
 	}

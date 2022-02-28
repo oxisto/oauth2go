@@ -1,6 +1,9 @@
 package oauth2
 
 type Client struct {
-	clientID     string
-	clientSecret string
+	ClientID string
+
+	ClientSecret string
+
+	RedirectURI string
 }

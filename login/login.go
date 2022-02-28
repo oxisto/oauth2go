@@ -82,6 +82,8 @@ type handler struct {
 	pwh PasswordHasher
 
 	files fs.FS
+
+	srv *oauth2.AuthorizationServer
 }
 
 // User represents a user in our authentication server. It has a unique name
@@ -266,14 +268,6 @@ func (h *handler) user(username string, password string) *User {
 	}
 
 	return nil
-}
-
-func GeneratePassword() string {
-	b := make([]byte, 32)
-
-	rand.Read(b)
-
-	return base64.StdEncoding.EncodeToString(b)
 }
 
 // parseReturnURL checks for the existence of a return URL in the HTTP request.

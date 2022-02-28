@@ -43,6 +43,7 @@ func TestWithLoginPage(t *testing.T) {
 			srv := oauth2.NewServer(":0", WithLoginPage(tt.args.opts...))
 			h, _ := srv.Handler.(*http.ServeMux).Handler(&http.Request{URL: &url.URL{Path: "/login"}})
 			got := h.(*handler)
+			got.srv = nil
 
 			if !reflect.DeepEqual(got, tt.want) {
 				t.Errorf("WithLoginPage() handler = %v, want %v", got, tt.want)
