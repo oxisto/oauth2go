@@ -43,6 +43,15 @@ func main() {
 }
 ```
 
+If you want to use this project as a small standalone authentication server, you can use the Docker image to spawn one. The created user and client credentials will be printed on the console.
+
+```
+docker run -p 8080:8080 ghcr.io/oxisto/oauth2go
+```
+
+A login form is available on http://localhost:8008/login.
+
+
 ## (To be) Implemented Standards
 
 * [RFC 6749](https://datatracker.ietf.org/doc/html/rfc6749). The basics
