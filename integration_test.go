@@ -7,6 +7,7 @@ import (
 	"net"
 	"net/http"
 	"net/url"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -43,7 +44,9 @@ func TestIntegration(t *testing.T) {
 	log.Printf("Token: %s", token.AccessToken)
 
 	jwtoken, err := jwt.ParseWithClaims(token.AccessToken, &jwt.RegisteredClaims{}, func(t *jwt.Token) (interface{}, error) {
-		return srv.PublicKeys()[0], nil
+		kid, _ := strconv.ParseInt(t.Header["kid"].(string), 10, 64)
+
+		return srv.PublicKeys()[kid], nil
 	})
 	if err != nil {
 		t.Errorf("Error while retrieving a token: %v", err)
