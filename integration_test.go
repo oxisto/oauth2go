@@ -19,7 +19,7 @@ import (
 )
 
 func TestIntegration(t *testing.T) {
-	srv := oauth2.NewServer(":0", oauth2.WithClient("client", "secret"))
+	srv := oauth2.NewServer(":0", oauth2.WithClient("client", "secret", ""))
 	ln, err := net.Listen("tcp", srv.Addr)
 	if err != nil {
 		t.Errorf("Error while listening key: %v", err)
@@ -67,7 +67,7 @@ func TestThreeLeggedFlow(t *testing.T) {
 	)
 
 	srv := oauth2.NewServer(":0",
-		oauth2.WithClient("client", "secret"),
+		oauth2.WithClient("client", "secret", "/test"),
 		login.WithLoginPage(login.WithUser("admin", "admin")),
 	)
 
@@ -88,7 +88,7 @@ func TestThreeLeggedFlow(t *testing.T) {
 			AuthURL:  fmt.Sprintf("http://localhost:%d/authorize", port),
 			TokenURL: fmt.Sprintf("http://localhost:%d/token", port),
 		},
-		RedirectURL: fmt.Sprintf("http://localhost:%d/test", port),
+		RedirectURL: "/test",
 	}
 
 	// Let's pretend to be a browser

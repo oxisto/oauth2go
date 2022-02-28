@@ -155,8 +155,8 @@ func TestAuthorizationServer_retrieveClient(t *testing.T) {
 			fields: fields{
 				clients: []*Client{
 					{
-						clientID:     "client",
-						clientSecret: "secret",
+						ClientID:     "client",
+						ClientSecret: "secret",
 					},
 				},
 			},
@@ -168,8 +168,8 @@ func TestAuthorizationServer_retrieveClient(t *testing.T) {
 				},
 			},
 			want: &Client{
-				clientID:     "client",
-				clientSecret: "secret",
+				ClientID:     "client",
+				ClientSecret: "secret",
 			},
 		},
 	}
@@ -348,8 +348,8 @@ func TestAuthorizationServer_doClientCredentialsFlow(t *testing.T) {
 			fields: fields{
 				clients: []*Client{
 					{
-						clientID:     "client",
-						clientSecret: "secret",
+						ClientID:     "client",
+						ClientSecret: "secret",
 					},
 				},
 				signingKeys: []*ecdsa.PrivateKey{
@@ -426,8 +426,8 @@ func TestAuthorizationServer_doAuthorizationCodeFlow(t *testing.T) {
 			fields: fields{
 				clients: []*Client{
 					{
-						clientID:     "client",
-						clientSecret: "secret",
+						ClientID:     "client",
+						ClientSecret: "secret",
 					},
 				},
 				codes: map[string]time.Time{
@@ -452,8 +452,8 @@ func TestAuthorizationServer_doAuthorizationCodeFlow(t *testing.T) {
 			fields: fields{
 				clients: []*Client{
 					{
-						clientID:     "client",
-						clientSecret: "secret",
+						ClientID:     "client",
+						ClientSecret: "secret",
 					},
 				},
 				codes: map[string]time.Time{

@@ -11,24 +11,24 @@ import (
 // handleAuthorize implements the authorize endpoint (see https://datatracker.ietf.org/doc/html/rfc6749#section-4.1).
 func (h *handler) handleAuthorize(w http.ResponseWriter, r *http.Request) {
 	var (
-		clientID    string
+		client      *oauth2.Client
 		redirectURI string
 		state       string
+		err         error
 		query       url.Values
 		session     *session
 	)
 
 	query = r.URL.Query()
 
-	if clientID = query.Get("client_id"); clientID == "" {
+	client, err = h.srv.GetClient(query.Get("client_id"))
+	if err != nil {
 		http.Error(w, "Invalid client ID", http.StatusBadRequest)
 		return
 	}
 
 	redirectURI = query.Get("redirect_uri")
-
-	// TODO(oxisto): Compare against stored redirect URI
-	if redirectURI == "" {
+	if redirectURI == "" || client.RedirectURI != redirectURI {
 		http.Error(w, "Invalid redirect URI", http.StatusBadRequest)
 		return
 	}

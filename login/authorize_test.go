@@ -40,7 +40,7 @@ func Test_handler_handleAuthorize(t *testing.T) {
 				users:    []*User{},
 				log:      log.Default(),
 				pwh:      bcryptHasher{},
-				srv:      oauth2.NewServer(":0", oauth2.WithClient("client", "secret")),
+				srv:      oauth2.NewServer(":0", oauth2.WithClient("client", "secret", "")),
 			},
 			args: args{
 				r: &http.Request{
@@ -53,13 +53,13 @@ func Test_handler_handleAuthorize(t *testing.T) {
 			},
 		},
 		{
-			name: "invalid redirect URI",
+			name: "empty redirect URI",
 			fields: fields{
 				sessions: map[string]*session{},
 				users:    []*User{},
 				log:      log.Default(),
 				pwh:      bcryptHasher{},
-				srv:      oauth2.NewServer(":0", oauth2.WithClient("client", "secret")),
+				srv:      oauth2.NewServer(":0", oauth2.WithClient("client", "secret", "/someurl")),
 			},
 			args: args{
 				r: &http.Request{
@@ -75,13 +75,35 @@ func Test_handler_handleAuthorize(t *testing.T) {
 			},
 		},
 		{
+			name: "invalid redirect URI",
+			fields: fields{
+				sessions: map[string]*session{},
+				users:    []*User{},
+				log:      log.Default(),
+				pwh:      bcryptHasher{},
+				srv:      oauth2.NewServer(":0", oauth2.WithClient("client", "secret", "/someurl")),
+			},
+			args: args{
+				r: &http.Request{
+					URL: &url.URL{
+						Path:     "/authorize",
+						RawQuery: "client_id=client&redirect_uri=/other_url",
+					},
+				},
+			},
+			wantCode: http.StatusBadRequest,
+			wantHeaderRegexp: http.Header{
+				"Content-Type": []string{"text/plain; charset=utf-8"},
+			},
+		},
+		{
 			name: "invalid response type",
 			fields: fields{
 				sessions: map[string]*session{},
 				users:    []*User{},
 				log:      log.Default(),
 				pwh:      bcryptHasher{},
-				srv:      oauth2.NewServer(":0", oauth2.WithClient("client", "secret")),
+				srv:      oauth2.NewServer(":0", oauth2.WithClient("client", "secret", "/test")),
 			},
 			args: args{
 				r: &http.Request{
@@ -103,7 +125,7 @@ func Test_handler_handleAuthorize(t *testing.T) {
 				users:    []*User{},
 				log:      log.Default(),
 				pwh:      bcryptHasher{},
-				srv:      oauth2.NewServer(":0", oauth2.WithClient("client", "secret")),
+				srv:      oauth2.NewServer(":0", oauth2.WithClient("client", "secret", "/test")),
 			},
 			args: args{
 				r: httptest.NewRequest("GET", "/authorize?client_id=client&redirect_uri=/test&response_type=code", nil),
@@ -128,7 +150,7 @@ func Test_handler_handleAuthorize(t *testing.T) {
 				log:   log.Default(),
 				pwh:   bcryptHasher{},
 				srv: func() *oauth2.AuthorizationServer {
-					srv := oauth2.NewServer(":0", oauth2.WithClient("client", "secret"))
+					srv := oauth2.NewServer(":0", oauth2.WithClient("client", "secret", "/test"))
 					return srv
 				}(),
 			},

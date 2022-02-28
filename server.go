@@ -47,11 +47,16 @@ type CodeIssuer interface {
 	ValidateCode(code string) bool
 }
 
-func WithClient(clientID string, clientSecret string) AuthorizationServerOption {
+func WithClient(
+	clientID string,
+	clientSecret string,
+	redirectURI string,
+) AuthorizationServerOption {
 	return func(srv *AuthorizationServer) {
 		srv.clients = append(srv.clients, &Client{
-			clientID:     clientID,
-			clientSecret: clientSecret,
+			ClientID:     clientID,
+			ClientSecret: clientSecret,
+			RedirectURI:  redirectURI,
 		})
 	}
 }
@@ -136,7 +141,7 @@ func (srv *AuthorizationServer) doClientCredentialsFlow(w http.ResponseWriter, r
 		return
 	}
 
-	token, err = generateToken(client.clientID, srv.signingKeys[0], 0, nil, 0)
+	token, err = generateToken(client.ClientID, srv.signingKeys[0], 0, nil, 0)
 	if err != nil {
 		http.Error(w, "error while creating JWT", http.StatusInternalServerError)
 		return
@@ -170,7 +175,7 @@ func (srv *AuthorizationServer) doAuthorizationCodeFlow(w http.ResponseWriter, r
 		return
 	}
 
-	token, err = generateToken(client.clientID, srv.signingKeys[0], 0, srv.signingKeys[0], 0)
+	token, err = generateToken(client.ClientID, srv.signingKeys[0], 0, srv.signingKeys[0], 0)
 	if err != nil {
 		http.Error(w, "error while creating JWT", http.StatusInternalServerError)
 		return
@@ -205,6 +210,18 @@ func (srv *AuthorizationServer) handleJWKS(w http.ResponseWriter, r *http.Reques
 	writeJSON(w, keySet)
 }
 
+// GetClient returns the client for the given ID or ErrClientNotFound.
+func (srv *AuthorizationServer) GetClient(clientID string) (*Client, error) {
+	// Look for a matching client
+	for _, c := range srv.clients {
+		if c.ClientID == clientID {
+			return c, nil
+		}
+	}
+
+	return nil, ErrClientNotFound
+}
+
 func (srv *AuthorizationServer) retrieveClient(r *http.Request) (*Client, error) {
 	var (
 		ok           bool
@@ -220,7 +237,7 @@ func (srv *AuthorizationServer) retrieveClient(r *http.Request) (*Client, error)
 
 	// Look for a matching client
 	for _, c := range srv.clients {
-		if c.clientID == clientID && c.clientSecret == clientSecret {
+		if c.ClientID == clientID && c.ClientSecret == clientSecret {
 			return c, nil
 		}
 	}

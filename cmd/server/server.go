@@ -26,7 +26,7 @@ func main() {
 
 	srv = oauth2.NewServer(
 		fmt.Sprintf(":%d", *port),
-		oauth2.WithClient("client", clientPassword),
+		oauth2.WithClient("client", clientPassword, ""),
 		login.WithLoginPage(login.WithUser("admin", userPassword)),
 	)
 	srv.BaseContext = ctx
