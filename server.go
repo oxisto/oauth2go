@@ -4,6 +4,8 @@ import (
 	"crypto/ecdsa"
 	"crypto/elliptic"
 	"crypto/rand"
+	"crypto/sha256"
+	"crypto/subtle"
 	"encoding/base64"
 	"encoding/json"
 	"errors"
@@ -22,9 +24,15 @@ var (
 )
 
 const (
-	ErrorInvalidClient = "invalid_client"
-	ErrorInvalidGrant  = "invalid_grant"
+	ErrorInvalidRequest = "invalid_request"
+	ErrorInvalidClient  = "invalid_client"
+	ErrorInvalidGrant   = "invalid_grant"
 )
+
+type codeInfo struct {
+	expiry    time.Time
+	challenge string
+}
 
 // AuthorizationServer is an OAuth 2.0 authorization server
 type AuthorizationServer struct {
@@ -36,15 +44,15 @@ type AuthorizationServer struct {
 	// our signing keys
 	signingKeys []*ecdsa.PrivateKey
 
-	// our codes and their expiry time
-	codes map[string]time.Time
+	// our codes and their expiry time and challenge
+	codes map[string]*codeInfo
 }
 
 type AuthorizationServerOption func(srv *AuthorizationServer)
 
 type CodeIssuer interface {
-	IssueCode() string
-	ValidateCode(code string) bool
+	IssueCode(challenge string) string
+	ValidateCode(verifier string, code string) bool
 }
 
 func WithClient(
@@ -70,7 +78,7 @@ func NewServer(addr string, opts ...AuthorizationServerOption) *AuthorizationSer
 			Addr:    addr,
 		},
 		clients: []*Client{},
-		codes:   make(map[string]time.Time),
+		codes:   make(map[string]*codeInfo),
 	}
 
 	for _, o := range opts {
@@ -134,7 +142,7 @@ func (srv *AuthorizationServer) doClientCredentialsFlow(w http.ResponseWriter, r
 	)
 
 	// Retrieve the client
-	client, err = srv.retrieveClient(r)
+	client, err = srv.retrieveClient(r, false)
 	if err != nil {
 		w.Header().Set("WWW-Authenticate", "Basic")
 		Error(w, ErrorInvalidClient, http.StatusUnauthorized)
@@ -154,23 +162,31 @@ func (srv *AuthorizationServer) doClientCredentialsFlow(w http.ResponseWriter, r
 // flow (see https://datatracker.ietf.org/doc/html/rfc6749#section-4.1).
 func (srv *AuthorizationServer) doAuthorizationCodeFlow(w http.ResponseWriter, r *http.Request) {
 	var (
-		err    error
-		code   string
-		token  *oauth2.Token
-		client *Client
+		err      error
+		code     string
+		verifier string
+		token    *oauth2.Token
+		client   *Client
 	)
 
 	// Retrieve the client
-	client, err = srv.retrieveClient(r)
+	client, err = srv.retrieveClient(r, true)
 	if err != nil {
 		w.Header().Set("WWW-Authenticate", "Basic")
 		Error(w, ErrorInvalidClient, http.StatusUnauthorized)
 		return
 	}
 
+	// Retrieve the code verifier. It is REQUIRED for public clients
+	verifier = r.FormValue("code_verifier")
+	if client.Public() && verifier == "" {
+		Error(w, ErrorInvalidRequest, http.StatusBadRequest)
+		return
+	}
+
 	// Retrieve the code
 	code = r.FormValue("code")
-	if !srv.ValidateCode(code) {
+	if !srv.ValidateCode(verifier, code) {
 		Error(w, ErrorInvalidGrant, http.StatusBadRequest)
 		return
 	}
@@ -222,7 +238,7 @@ func (srv *AuthorizationServer) GetClient(clientID string) (*Client, error) {
 	return nil, ErrClientNotFound
 }
 
-func (srv *AuthorizationServer) retrieveClient(r *http.Request) (*Client, error) {
+func (srv *AuthorizationServer) retrieveClient(r *http.Request, allowPublic bool) (*Client, error) {
 	var (
 		ok           bool
 		clientID     string
@@ -230,8 +246,16 @@ func (srv *AuthorizationServer) retrieveClient(r *http.Request) (*Client, error)
 	)
 
 	clientID, clientSecret, ok = r.BasicAuth()
-
 	if !ok {
+		// We could still recover from this, if public clients are allowed.
+		// We force PKCE later in the handler function.
+		if allowPublic {
+			// Check, if we have a client ID, this might allow us to identify a public client
+			clientID = r.FormValue("client_id")
+
+			return srv.GetClient(clientID)
+		}
+
 		return nil, ErrInvalidBasicAuthentication
 	}
 
@@ -246,28 +270,36 @@ func (srv *AuthorizationServer) retrieveClient(r *http.Request) (*Client, error)
 }
 
 // IssueCode implements CodeIssuer.
-func (srv *AuthorizationServer) IssueCode() (code string) {
+func (srv *AuthorizationServer) IssueCode(challenge string) (code string) {
 	code = GenerateSecret()
 
-	srv.codes[code] = time.Now().Add(10 * time.Minute)
+	srv.codes[code] = &codeInfo{
+		expiry:    time.Now().Add(10 * time.Minute),
+		challenge: challenge,
+	}
 
 	return code
 }
 
 // ValidateCode implements CodeIssuer. It checks if the code exists and is
 // not expired. If the code exists, it will be invalidated after this call.
-func (srv *AuthorizationServer) ValidateCode(code string) bool {
+func (srv *AuthorizationServer) ValidateCode(verifier string, code string) bool {
 	var (
-		expiry time.Time
-		ok     bool
+		ok   bool
+		info *codeInfo
 	)
 
-	expiry, ok = srv.codes[code]
+	info, ok = srv.codes[code]
 	if !ok {
 		return false
 	}
 
-	if expiry.Before(time.Now()) {
+	if info.expiry.Before(time.Now()) {
+		return false
+	}
+
+	// Check, if we need to check for a challenge
+	if info.challenge != "" && subtle.ConstantTimeCompare([]byte(base64.URLEncoding.EncodeToString(sha256.New().Sum([]byte(verifier)))), []byte(info.challenge)) == 0 {
 		return false
 	}
 
@@ -283,9 +315,15 @@ func Error(w http.ResponseWriter, error string, statusCode int) {
 	http.Error(w, fmt.Sprintf(`{"error": "%s"}`, error), statusCode)
 }
 
-func RedirectError(w http.ResponseWriter, r *http.Request, redirectURI string, error string) {
+func RedirectError(w http.ResponseWriter,
+	r *http.Request,
+	redirectURI string,
+	error string,
+	errorDescription string,
+) {
 	params := url.Values{}
 	params.Add("error", error)
+	params.Add("error_description", errorDescription)
 
 	http.Redirect(w, r, fmt.Sprintf("%s?%s", redirectURI, params.Encode()), http.StatusFound)
 }
