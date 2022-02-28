@@ -54,6 +54,7 @@ A login form is available on http://localhost:8008/login.
 
 ## (To be) Implemented Standards
 
-* [RFC 6749](https://datatracker.ietf.org/doc/html/rfc6749). The basics
-* [RFC 6750](https://datatracker.ietf.org/doc/html/rfc6750). We are exclusively using JWTs as bearer tokens
-* [RFC 7517](https://datatracker.ietf.org/doc/html/rfc7517). JSON Web Key
+* [RFC 6749](https://datatracker.ietf.org/doc/html/rfc6749). The OAuth 2.0 Authorization Framework
+* [RFC 6750](https://datatracker.ietf.org/doc/html/rfc6750). The OAuth 2.0 Authorization Framework: Bearer Token Usage
+* [RFC 7517](https://datatracker.ietf.org/doc/html/rfc7517). JSON Web Key (JWK)
+* [RFC 7636](https://datatracker.ietf.org/doc/html/rfc7636). Proof Key for Code Exchange by OAuth Public Clients

@@ -71,7 +71,7 @@ func TestThreeLeggedFlow(t *testing.T) {
 	)
 
 	srv := oauth2.NewServer(":0",
-		oauth2.WithClient("client", "secret", "/test"),
+		oauth2.WithClient("public", "", "/test"),
 		login.WithLoginPage(login.WithUser("admin", "admin")),
 	)
 
@@ -86,8 +86,8 @@ func TestThreeLeggedFlow(t *testing.T) {
 	defer srv.Close()
 
 	config := oauth2.Config{
-		ClientID:     "client",
-		ClientSecret: "secret",
+		ClientID:     "public",
+		ClientSecret: "",
 		Endpoint: oauth2.Endpoint{
 			AuthURL:  fmt.Sprintf("http://localhost:%d/authorize", port),
 			TokenURL: fmt.Sprintf("http://localhost:%d/token", port),

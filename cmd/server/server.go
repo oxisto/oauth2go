@@ -12,6 +12,7 @@ import (
 )
 
 var port = flag.Int("port", 8080, "the default port")
+var redirectURI = flag.String("redirect-uri", "http://localhost", "the default redirect URI")
 var srv *oauth2.AuthorizationServer
 var ctx func(net.Listener) context.Context = nil
 
@@ -22,16 +23,18 @@ func main() {
 	clientPassword := oauth2.GenerateSecret()
 
 	log.Printf(`Creating new user "admin" with password %s`, userPassword)
-	log.Printf(`Creating new client "client" with password %s`, clientPassword)
+	log.Printf(`Creating new confidential client "client" with password %s`, clientPassword)
+	log.Printf(`Creating new public client "public"`)
 
 	srv = oauth2.NewServer(
 		fmt.Sprintf(":%d", *port),
-		oauth2.WithClient("client", clientPassword, ""),
+		oauth2.WithClient("client", clientPassword, *redirectURI),
+		oauth2.WithClient("public", "", *redirectURI),
 		login.WithLoginPage(login.WithUser("admin", userPassword)),
 	)
 	srv.BaseContext = ctx
 
-	log.Printf("Creating new OAuth 2.0 server on :%d", *port)
+	log.Printf("Starting new OAuth 2.0 server on :%d", *port)
 
 	log.Fatal(srv.ListenAndServe())
 }
