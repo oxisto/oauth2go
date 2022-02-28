@@ -312,5 +312,5 @@ func GenerateSecret() string {
 
 	rand.Read(b)
 
-	return base64.StdEncoding.EncodeToString(b)
+	return base64.RawStdEncoding.EncodeToString(b)
 }
