@@ -119,7 +119,7 @@ func Test_handler_handleAuthorize(t *testing.T) {
 			},
 		},
 		{
-			name: "valid request, no session",
+			name: "missing code challenge",
 			fields: fields{
 				sessions: map[string]*session{},
 				users:    []*User{},
@@ -132,8 +132,42 @@ func Test_handler_handleAuthorize(t *testing.T) {
 			},
 			wantCode: http.StatusFound,
 			wantHeaderRegexp: http.Header{
+				"Location": []string{"/test\\?error=invalid_request&error_description=Code\\+challenge\\+is\\+required"},
+			},
+		},
+		{
+			name: "invalid code challenge method",
+			fields: fields{
+				sessions: map[string]*session{},
+				users:    []*User{},
+				log:      log.Default(),
+				pwh:      bcryptHasher{},
+				srv:      oauth2.NewServer(":0", oauth2.WithClient("client", "secret", "/test")),
+			},
+			args: args{
+				r: httptest.NewRequest("GET", "/authorize?client_id=client&redirect_uri=/test&response_type=code&code_challenge=0123456789&code_challenge_method=WHAT", nil),
+			},
+			wantCode: http.StatusFound,
+			wantHeaderRegexp: http.Header{
+				"Location": []string{"/test\\?error=invalid_request&error_description=Only\\+transform\\+algorithm\\+S265\\+is\\+supported"},
+			},
+		},
+		{
+			name: "valid request, no session",
+			fields: fields{
+				sessions: map[string]*session{},
+				users:    []*User{},
+				log:      log.Default(),
+				pwh:      bcryptHasher{},
+				srv:      oauth2.NewServer(":0", oauth2.WithClient("client", "secret", "/test")),
+			},
+			args: args{
+				r: httptest.NewRequest("GET", "/authorize?client_id=client&redirect_uri=/test&response_type=code&code_challenge=0123456789&code_challenge_method=S256", nil),
+			},
+			wantCode: http.StatusFound,
+			wantHeaderRegexp: http.Header{
 				// Should redirect to login page but with this authorize endpoint as return URL
-				"Location": []string{"/login\\?return_url=%2Fauthorize%3Fclient_id%3Dclient%26redirect_uri%3D%2Ftest%26response_type%3Dcode"},
+				"Location": []string{"/login\\?return_url=%2Fauthorize%3Fclient_id%3Dclient%26redirect_uri%3D%2Ftest%26response_type%3Dcode%26code_challenge%3D0123456789%26code_challenge_method%3DS256"},
 			},
 		},
 		{
@@ -156,7 +190,7 @@ func Test_handler_handleAuthorize(t *testing.T) {
 			},
 			args: args{
 				r: func() *http.Request {
-					r := httptest.NewRequest("GET", "/authorize?client_id=client&redirect_uri=/test&response_type=code", nil)
+					r := httptest.NewRequest("GET", "/authorize?client_id=client&redirect_uri=/test&response_type=code&code_challenge=0123456789&code_challenge_method=S256", nil)
 					r.AddCookie(&http.Cookie{
 						Name:  "id",
 						Value: "mysession",

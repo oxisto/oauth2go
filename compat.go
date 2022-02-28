@@ -25,3 +25,6 @@ type TokenSource = oauth2.TokenSource
 
 // Transport is a type alias for https://pkg.go.dev/golang.org/x/oauth2#Transport.
 type Transport = oauth2.Transport
+
+// SetAuthURLParam is a function alias for https://pkg.go.dev/golang.org/x/oauth2#SetAuthURLParam.
+var SetAuthURLParam = oauth2.SetAuthURLParam

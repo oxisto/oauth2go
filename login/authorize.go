@@ -14,6 +14,8 @@ func (h *handler) handleAuthorize(w http.ResponseWriter, r *http.Request) {
 		client      *oauth2.Client
 		redirectURI string
 		state       string
+		challenge   string
+		method      string
 		err         error
 		query       url.Values
 		session     *session
@@ -34,7 +36,19 @@ func (h *handler) handleAuthorize(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if query.Get("response_type") != "code" {
-		oauth2.RedirectError(w, r, redirectURI, "invalid_request")
+		oauth2.RedirectError(w, r, redirectURI, "invalid_request", "")
+		return
+	}
+
+	challenge = query.Get("code_challenge")
+	if challenge == "" {
+		oauth2.RedirectError(w, r, redirectURI, "invalid_request", "Code challenge is required")
+		return
+	}
+
+	method = query.Get("code_challenge_method")
+	if method != "S256" {
+		oauth2.RedirectError(w, r, redirectURI, "invalid_request", "Only transform algorithm S265 is supported")
 		return
 	}
 
@@ -51,7 +65,7 @@ func (h *handler) handleAuthorize(w http.ResponseWriter, r *http.Request) {
 		http.Redirect(w, r, fmt.Sprintf("/login?%s", params.Encode()), http.StatusFound)
 	} else {
 		var params = url.Values{}
-		params.Add("code", h.srv.IssueCode())
+		params.Add("code", h.srv.IssueCode(challenge))
 		params.Add("state", state)
 
 		http.Redirect(w, r, fmt.Sprintf("%s?%s", redirectURI, params.Encode()), http.StatusFound)

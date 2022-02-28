@@ -2,6 +2,8 @@ package oauth2_test
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/base64"
 	"fmt"
 	"log"
 	"net"
@@ -57,13 +59,15 @@ func TestIntegration(t *testing.T) {
 
 func TestThreeLeggedFlow(t *testing.T) {
 	var (
-		res     *http.Response
-		req     *http.Request
-		client  *http.Client
-		form    url.Values
-		session *http.Cookie
-		token   *oauth2.Token
-		code    string
+		res       *http.Response
+		req       *http.Request
+		client    *http.Client
+		form      url.Values
+		session   *http.Cookie
+		token     *oauth2.Token
+		code      string
+		challenge string
+		verifier  string
 	)
 
 	srv := oauth2.NewServer(":0",
@@ -91,8 +95,18 @@ func TestThreeLeggedFlow(t *testing.T) {
 		RedirectURL: "/test",
 	}
 
+	// create a challenge and verifier
+	verifier = "012345678901234567890123456789012345678901234567890123456789"
+	challenge = base64.URLEncoding.EncodeToString(sha256.New().Sum([]byte(verifier)))
+
 	// Let's pretend to be a browser
-	res, _ = http.Get(config.AuthCodeURL("some-state"))
+	res, err = http.Get(config.AuthCodeURL("some-state",
+		oauth2.SetAuthURLParam("code_challenge", challenge),
+		oauth2.SetAuthURLParam("code_challenge_method", "S256"),
+	))
+	if err != nil {
+		t.Errorf("Error while POST /authorize: %v", err)
+	}
 
 	// We are interested in two things
 	// - The session ID (or the cookie)
@@ -102,6 +116,10 @@ func TestThreeLeggedFlow(t *testing.T) {
 			session = c
 			break
 		}
+	}
+
+	if session == nil {
+		t.Errorf("Error session is nil:")
 	}
 
 	// Parse the HTML body to look for the csrf_token
@@ -135,7 +153,10 @@ func TestThreeLeggedFlow(t *testing.T) {
 	// Extract the code from the response
 	code = res.Request.URL.Query().Get("code")
 
-	token, err = config.Exchange(context.Background(), code)
+	token, err = config.Exchange(context.Background(),
+		code,
+		oauth2.SetAuthURLParam("code_verifier", verifier),
+	)
 	if err != nil {
 		t.Errorf("Error while Exchange: %v", err)
 	}

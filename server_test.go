@@ -3,8 +3,11 @@ package oauth2
 import (
 	"crypto/ecdsa"
 	"crypto/elliptic"
+	"crypto/sha256"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"math/big"
 	"net/http"
@@ -36,6 +39,7 @@ var badSigningKey = ecdsa.PrivateKey{
 		}(),
 	},
 }
+
 var mockSigningKey = ecdsa.PrivateKey{
 	D: big.NewInt(1),
 	PublicKey: ecdsa.PublicKey{
@@ -44,6 +48,9 @@ var mockSigningKey = ecdsa.PrivateKey{
 		Curve: elliptic.P256(),
 	},
 }
+
+var testVerifier = "012345678901234567890123456789012345678901234567890123456789"
+var testChallenge = base64.URLEncoding.EncodeToString(sha256.New().Sum([]byte(testVerifier)))
 
 func TestAuthorizationServer_handleToken(t *testing.T) {
 	type fields struct {
@@ -101,7 +108,8 @@ func TestAuthorizationServer_retrieveClient(t *testing.T) {
 		signingKeys []*ecdsa.PrivateKey
 	}
 	type args struct {
-		r *http.Request
+		r           *http.Request
+		allowPublic bool
 	}
 	tests := []struct {
 		name    string
@@ -179,7 +187,7 @@ func TestAuthorizationServer_retrieveClient(t *testing.T) {
 				clients:     tt.fields.clients,
 				signingKeys: tt.fields.signingKeys,
 			}
-			got, err := srv.retrieveClient(tt.args.r)
+			got, err := srv.retrieveClient(tt.args.r, tt.args.allowPublic)
 			if (err != nil) != tt.wantErr {
 				t.Errorf("AuthorizationServer.retrieveClient() error = %v, wantErr %v", err, tt.wantErr)
 				return
@@ -396,7 +404,7 @@ func TestAuthorizationServer_doAuthorizationCodeFlow(t *testing.T) {
 	type fields struct {
 		clients     []*Client
 		signingKeys []*ecdsa.PrivateKey
-		codes       map[string]time.Time
+		codes       map[string]*codeInfo
 	}
 	type args struct {
 		r *http.Request
@@ -422,7 +430,7 @@ func TestAuthorizationServer_doAuthorizationCodeFlow(t *testing.T) {
 			wantBody: `{"error": "invalid_client"}`,
 		},
 		{
-			name: "correct authorization but invalid code",
+			name: "correct authorization of confidential client but invalid code",
 			fields: fields{
 				clients: []*Client{
 					{
@@ -430,8 +438,11 @@ func TestAuthorizationServer_doAuthorizationCodeFlow(t *testing.T) {
 						ClientSecret: "secret",
 					},
 				},
-				codes: map[string]time.Time{
-					"myCode": time.Now().Add(10 * time.Minute),
+				codes: map[string]*codeInfo{
+					"myCode": {
+						expiry:    time.Now().Add(10 * time.Minute),
+						challenge: testChallenge,
+					},
 				},
 			},
 			args: args{
@@ -444,8 +455,36 @@ func TestAuthorizationServer_doAuthorizationCodeFlow(t *testing.T) {
 					Body: io.NopCloser(strings.NewReader("code=myOtherCode")),
 				},
 			},
-			wantCode: 400,
+			wantCode: http.StatusBadRequest,
 			wantBody: `{"error": "invalid_grant"}`,
+		},
+		{
+			name: "public client without challenge",
+			fields: fields{
+				clients: []*Client{
+					{
+						ClientID:     "client",
+						ClientSecret: "",
+					},
+				},
+				codes: map[string]*codeInfo{
+					"myCode": {
+						expiry:    time.Now().Add(10 * time.Minute),
+						challenge: testChallenge,
+					},
+				},
+			},
+			args: args{
+				r: &http.Request{
+					Method: "POST",
+					Header: http.Header{
+						http.CanonicalHeaderKey("Content-Type"): []string{"application/x-www-form-urlencoded"},
+					},
+					Body: io.NopCloser(strings.NewReader("client_id=client&code=myCode")),
+				},
+			},
+			wantCode: http.StatusBadRequest,
+			wantBody: `{"error": "invalid_request"}`,
 		},
 		{
 			name: "problem with JWT",
@@ -456,8 +495,11 @@ func TestAuthorizationServer_doAuthorizationCodeFlow(t *testing.T) {
 						ClientSecret: "secret",
 					},
 				},
-				codes: map[string]time.Time{
-					"myCode": time.Now().Add(10 * time.Minute),
+				codes: map[string]*codeInfo{
+					"myCode": {
+						expiry:    time.Now().Add(10 * time.Minute),
+						challenge: testChallenge,
+					},
 				},
 				signingKeys: []*ecdsa.PrivateKey{
 					&badSigningKey,
@@ -470,13 +512,14 @@ func TestAuthorizationServer_doAuthorizationCodeFlow(t *testing.T) {
 						http.CanonicalHeaderKey("Authorization"): []string{"Basic Y2xpZW50OnNlY3JldA=="}, // client:secret
 						http.CanonicalHeaderKey("Content-Type"):  []string{"application/x-www-form-urlencoded"},
 					},
-					Body: io.NopCloser(strings.NewReader("code=myCode")),
+					Body: io.NopCloser(strings.NewReader(fmt.Sprintf("code=myCode&code_verifier=%s", testVerifier))),
 				},
 			},
-			wantCode: 500,
+			wantCode: http.StatusInternalServerError,
 			wantBody: `error while creating JWT`,
 		},
 	}
+
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			srv := &AuthorizationServer{
@@ -504,10 +547,11 @@ func TestAuthorizationServer_ValidateCode(t *testing.T) {
 	type fields struct {
 		clients     []*Client
 		signingKeys []*ecdsa.PrivateKey
-		codes       map[string]time.Time
+		codes       map[string]*codeInfo
 	}
 	type args struct {
-		code string
+		verifier string
+		code     string
 	}
 	tests := []struct {
 		name   string
@@ -518,8 +562,11 @@ func TestAuthorizationServer_ValidateCode(t *testing.T) {
 		{
 			name: "code is not existing",
 			fields: fields{
-				codes: map[string]time.Time{
-					"myCode": time.Now().Add(10 * time.Minute),
+				codes: map[string]*codeInfo{
+					"myCode": {
+						expiry:    time.Now().Add(10 * time.Minute),
+						challenge: testChallenge,
+					},
 				},
 			},
 			args: args{
@@ -530,8 +577,26 @@ func TestAuthorizationServer_ValidateCode(t *testing.T) {
 		{
 			name: "code is expired",
 			fields: fields{
-				codes: map[string]time.Time{
-					"myCode": time.Now().Add(-10 * time.Minute),
+				codes: map[string]*codeInfo{
+					"myCode": {
+						expiry:    time.Now().Add(-10 * time.Minute),
+						challenge: testChallenge,
+					},
+				},
+			},
+			args: args{
+				code: "myCode",
+			},
+			want: false,
+		},
+		{
+			name: "code is not expired",
+			fields: fields{
+				codes: map[string]*codeInfo{
+					"myCode": {
+						expiry:    time.Now().Add(10 * time.Minute),
+						challenge: testChallenge,
+					},
 				},
 			},
 			args: args{
@@ -542,12 +607,16 @@ func TestAuthorizationServer_ValidateCode(t *testing.T) {
 		{
 			name: "code is ok",
 			fields: fields{
-				codes: map[string]time.Time{
-					"myCode": time.Now().Add(10 * time.Minute),
+				codes: map[string]*codeInfo{
+					"myCode": {
+						expiry:    time.Now().Add(10 * time.Minute),
+						challenge: testChallenge,
+					},
 				},
 			},
 			args: args{
-				code: "myCode",
+				verifier: testVerifier,
+				code:     "myCode",
 			},
 			want: true,
 		},
@@ -559,7 +628,7 @@ func TestAuthorizationServer_ValidateCode(t *testing.T) {
 				signingKeys: tt.fields.signingKeys,
 				codes:       tt.fields.codes,
 			}
-			if got := srv.ValidateCode(tt.args.code); got != tt.want {
+			if got := srv.ValidateCode(tt.args.verifier, tt.args.code); got != tt.want {
 				t.Errorf("AuthorizationServer.ValidateCode() = %v, want %v", got, tt.want)
 			}
 		})
