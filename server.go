@@ -261,7 +261,7 @@ func (srv *AuthorizationServer) retrieveClient(r *http.Request, allowPublic bool
 
 	// Look for a matching client
 	for _, c := range srv.clients {
-		if c.ClientID == clientID && c.ClientSecret == clientSecret {
+		if !c.Public() && c.ClientID == clientID && c.ClientSecret == clientSecret {
 			return c, nil
 		}
 	}

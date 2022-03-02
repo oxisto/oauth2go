@@ -14,4 +14,4 @@ FROM alpine
 
 COPY --from=builder /build/server /
 
-CMD ["./server"]
+ENTRYPOINT [ "./server"]

@@ -6,7 +6,12 @@
         {
             "label": "go build: cmd/server/server.go",
             "type": "shell",
-            "command": "go build cmd/server/server.go"
+            "command": "go build cmd/server/server.go",
+            "problemMatcher": [],
+            "group": {
+                "kind": "build",
+                "isDefault": true
+            }
         }
     ]
 }
