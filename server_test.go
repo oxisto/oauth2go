@@ -234,6 +234,7 @@ func TestAuthorizationServer_handleJWKS(t *testing.T) {
 				Keys: []JSONWebKey{{
 					Kid: "0",
 					Kty: "EC",
+					Crv: "P-256",
 					X:   "AQ",
 					Y:   "Ag",
 				}},
