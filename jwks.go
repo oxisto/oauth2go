@@ -11,6 +11,8 @@ type JSONWebKey struct {
 
 	Kty string `json:"kty"`
 
+	Crv string `json:"crv"`
+
 	X string `json:"x"`
 
 	Y string `json:"y"`
