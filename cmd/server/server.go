@@ -14,14 +14,22 @@ import (
 var port = flag.Int("port", 8080, "the default port")
 var redirectURI = flag.String("redirect-uri", "http://localhost", "the default redirect URI")
 
-var clientSecret = flag.String("client-secret", oauth2.GenerateSecret(), "a client secret. If not specified, one will be generated")
-var userPassword = flag.String("user-password", oauth2.GenerateSecret(), "a user password. If not specified, one will be generated")
+var clientSecret = flag.String("client-secret", "", "a client secret. If not specified, one will be generated")
+var userPassword = flag.String("user-password", "", "a user password. If not specified, one will be generated")
 
 var srv *oauth2.AuthorizationServer
 var ctx func(net.Listener) context.Context = nil
 
 func main() {
 	flag.Parse()
+
+	if *clientSecret == "" {
+		*clientSecret = oauth2.GenerateSecret()
+	}
+
+	if *userPassword == "" {
+		*userPassword = oauth2.GenerateSecret()
+	}
 
 	log.Printf(`Creating new user "admin" with password %s`, *userPassword)
 	log.Printf(`Creating new confidential client "client" with password %s`, *clientSecret)
