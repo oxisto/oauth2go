@@ -19,7 +19,8 @@
             "program": "${workspaceFolder}/cmd/server/server.go",
             "args": [
                 "-port=8000",
-                "-client-secret=secret"
+                "-client-secret=secret",
+                "-redirect-uri=http://localhost:3000/callback"
             ]
         }
     ]

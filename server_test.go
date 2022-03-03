@@ -3,8 +3,6 @@ package oauth2
 import (
 	"crypto/ecdsa"
 	"crypto/elliptic"
-	"crypto/sha256"
-	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -50,7 +48,7 @@ var mockSigningKey = ecdsa.PrivateKey{
 }
 
 var testVerifier = "012345678901234567890123456789012345678901234567890123456789"
-var testChallenge = base64.URLEncoding.EncodeToString(sha256.New().Sum([]byte(testVerifier)))
+var testChallenge = GenerateCodeChallenge(testVerifier)
 
 func TestAuthorizationServer_handleToken(t *testing.T) {
 	type fields struct {
