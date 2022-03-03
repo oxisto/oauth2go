@@ -2,8 +2,6 @@ package oauth2_test
 
 import (
 	"context"
-	"crypto/sha256"
-	"encoding/base64"
 	"fmt"
 	"log"
 	"net"
@@ -97,7 +95,7 @@ func TestThreeLeggedFlowPublicClient(t *testing.T) {
 
 	// create a challenge and verifier
 	verifier = "012345678901234567890123456789012345678901234567890123456789"
-	challenge = base64.URLEncoding.EncodeToString(sha256.New().Sum([]byte(verifier)))
+	challenge = oauth2.GenerateCodeChallenge(verifier)
 
 	// Let's pretend to be a browser
 	res, err = http.Get(config.AuthCodeURL("some-state",
