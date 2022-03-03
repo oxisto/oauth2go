@@ -53,7 +53,7 @@ var testChallenge = GenerateCodeChallenge(testVerifier)
 func TestAuthorizationServer_handleToken(t *testing.T) {
 	type fields struct {
 		clients     []*Client
-		signingKeys []*ecdsa.PrivateKey
+		signingKeys map[int]*ecdsa.PrivateKey
 	}
 	type args struct {
 		r *http.Request
@@ -103,7 +103,7 @@ func TestAuthorizationServer_handleToken(t *testing.T) {
 func TestAuthorizationServer_retrieveClient(t *testing.T) {
 	type fields struct {
 		clients     []*Client
-		signingKeys []*ecdsa.PrivateKey
+		signingKeys map[int]*ecdsa.PrivateKey
 	}
 	type args struct {
 		r           *http.Request
@@ -200,7 +200,7 @@ func TestAuthorizationServer_retrieveClient(t *testing.T) {
 func TestAuthorizationServer_handleJWKS(t *testing.T) {
 	type fields struct {
 		clients     []*Client
-		signingKeys []*ecdsa.PrivateKey
+		signingKeys map[int]*ecdsa.PrivateKey
 	}
 	type args struct {
 		r *http.Request
@@ -215,8 +215,8 @@ func TestAuthorizationServer_handleJWKS(t *testing.T) {
 		{
 			name: "retrieve JWKS with GET",
 			fields: fields{
-				signingKeys: []*ecdsa.PrivateKey{
-					{
+				signingKeys: map[int]*ecdsa.PrivateKey{
+					0: {
 						PublicKey: ecdsa.PublicKey{
 							Curve: elliptic.P256(),
 							X:     big.NewInt(1),
@@ -325,7 +325,7 @@ func Test_writeJSON(t *testing.T) {
 func TestAuthorizationServer_doClientCredentialsFlow(t *testing.T) {
 	type fields struct {
 		clients     []*Client
-		signingKeys []*ecdsa.PrivateKey
+		signingKeys map[int]*ecdsa.PrivateKey
 	}
 	type args struct {
 		r *http.Request
@@ -359,8 +359,8 @@ func TestAuthorizationServer_doClientCredentialsFlow(t *testing.T) {
 						ClientSecret: "secret",
 					},
 				},
-				signingKeys: []*ecdsa.PrivateKey{
-					&badSigningKey,
+				signingKeys: map[int]*ecdsa.PrivateKey{
+					0: &badSigningKey,
 				},
 			},
 			args: args{
@@ -402,7 +402,7 @@ func TestAuthorizationServer_doClientCredentialsFlow(t *testing.T) {
 func TestAuthorizationServer_doAuthorizationCodeFlow(t *testing.T) {
 	type fields struct {
 		clients     []*Client
-		signingKeys []*ecdsa.PrivateKey
+		signingKeys map[int]*ecdsa.PrivateKey
 		codes       map[string]*codeInfo
 	}
 	type args struct {
@@ -500,8 +500,8 @@ func TestAuthorizationServer_doAuthorizationCodeFlow(t *testing.T) {
 						challenge: testChallenge,
 					},
 				},
-				signingKeys: []*ecdsa.PrivateKey{
-					&badSigningKey,
+				signingKeys: map[int]*ecdsa.PrivateKey{
+					0: &badSigningKey,
 				},
 			},
 			args: args{
@@ -545,7 +545,7 @@ func TestAuthorizationServer_doAuthorizationCodeFlow(t *testing.T) {
 func TestAuthorizationServer_ValidateCode(t *testing.T) {
 	type fields struct {
 		clients     []*Client
-		signingKeys []*ecdsa.PrivateKey
+		signingKeys map[int]*ecdsa.PrivateKey
 		codes       map[string]*codeInfo
 	}
 	type args struct {
@@ -634,38 +634,79 @@ func TestAuthorizationServer_ValidateCode(t *testing.T) {
 	}
 }
 
-func Test_generateToken(t *testing.T) {
+func TestAuthorizationServer_GenerateToken(t *testing.T) {
+	type fields struct {
+		clients     []*Client
+		signingKeys map[int]*ecdsa.PrivateKey
+		codes       map[string]*codeInfo
+	}
 	type args struct {
 		clientID     string
-		signingKey   *ecdsa.PrivateKey
 		signingKeyID int
-		refreshKey   *ecdsa.PrivateKey
 		refreshKeyID int
 	}
 	tests := []struct {
 		name      string
+		fields    fields
 		args      args
 		wantToken *Token
 		wantErr   bool
 	}{
 		{
 			name: "bad signing key",
+			fields: fields{
+				signingKeys: map[int]*ecdsa.PrivateKey{
+					0: &badSigningKey,
+				},
+			},
 			args: args{
 				clientID:     "client",
-				signingKey:   &badSigningKey,
 				signingKeyID: 0,
 			},
 			wantToken: nil,
 			wantErr:   true,
 		},
 		{
-			name: "bad refresh key",
+			name: "invalid key ID",
+			fields: fields{
+				signingKeys: map[int]*ecdsa.PrivateKey{
+					0: &mockSigningKey,
+				},
+			},
 			args: args{
 				clientID:     "client",
-				signingKey:   &mockSigningKey,
+				signingKeyID: 1,
+			},
+			wantToken: nil,
+			wantErr:   true,
+		},
+		{
+			name: "bad refresh key",
+			fields: fields{
+				signingKeys: map[int]*ecdsa.PrivateKey{
+					0: &mockSigningKey,
+					1: &badSigningKey,
+				},
+			},
+			args: args{
+				clientID:     "client",
 				signingKeyID: 0,
-				refreshKey:   &badSigningKey,
-				refreshKeyID: 0,
+				refreshKeyID: 1,
+			},
+			wantToken: nil,
+			wantErr:   true,
+		},
+		{
+			name: "invalid refresh key ID",
+			fields: fields{
+				signingKeys: map[int]*ecdsa.PrivateKey{
+					0: &mockSigningKey,
+				},
+			},
+			args: args{
+				clientID:     "client",
+				signingKeyID: 0,
+				refreshKeyID: 1,
 			},
 			wantToken: nil,
 			wantErr:   true,
@@ -674,14 +715,20 @@ func Test_generateToken(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			gotToken, err := generateToken(tt.args.clientID, tt.args.signingKey, tt.args.signingKeyID, tt.args.refreshKey, tt.args.refreshKeyID)
+			srv := &AuthorizationServer{
+				clients:     tt.fields.clients,
+				signingKeys: tt.fields.signingKeys,
+				codes:       tt.fields.codes,
+			}
+
+			gotToken, err := srv.GenerateToken(tt.args.clientID, tt.args.signingKeyID, tt.args.refreshKeyID)
 			if (err != nil) != tt.wantErr {
-				t.Errorf("generateToken() error = %v, wantErr %v", err, tt.wantErr)
+				t.Errorf("AuthorizationServer.GenerateToken() error = %v, wantErr %v", err, tt.wantErr)
 				return
 			}
 
 			if !reflect.DeepEqual(gotToken, tt.wantToken) {
-				t.Errorf("generateToken() = %v, want %v", gotToken, tt.wantToken)
+				t.Errorf("AuthorizationServer.GenerateToken() = %v, want %v", gotToken, tt.wantToken)
 			}
 		})
 	}
