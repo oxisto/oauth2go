@@ -42,7 +42,7 @@ type AuthorizationServer struct {
 	clients []*Client
 
 	// our signing keys
-	signingKeys []*ecdsa.PrivateKey
+	signingKeys map[int]*ecdsa.PrivateKey
 
 	// our codes and their expiry time and challenge
 	codes map[string]*codeInfo
@@ -88,7 +88,7 @@ func NewServer(addr string, opts ...AuthorizationServerOption) *AuthorizationSer
 	// Create a new private key
 	var signingKey, _ = ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
 
-	srv.signingKeys = []*ecdsa.PrivateKey{signingKey}
+	srv.signingKeys = map[int]*ecdsa.PrivateKey{0: signingKey}
 
 	mux.HandleFunc("/token", srv.handleToken)
 	mux.HandleFunc("/.well-known/jwks.json", srv.handleJWKS)
@@ -149,7 +149,7 @@ func (srv *AuthorizationServer) doClientCredentialsFlow(w http.ResponseWriter, r
 		return
 	}
 
-	token, err = generateToken(client.ClientID, srv.signingKeys[0], 0, nil, 0)
+	token, err = srv.GenerateToken(client.ClientID, 0, -1)
 	if err != nil {
 		http.Error(w, "error while creating JWT", http.StatusInternalServerError)
 		return
@@ -193,7 +193,7 @@ func (srv *AuthorizationServer) doAuthorizationCodeFlow(w http.ResponseWriter, r
 		return
 	}
 
-	token, err = generateToken(client.ClientID, srv.signingKeys[0], 0, srv.signingKeys[0], 0)
+	token, err = srv.GenerateToken(client.ClientID, 0, 0)
 	if err != nil {
 		http.Error(w, "error while creating JWT", http.StatusInternalServerError)
 		return
@@ -314,6 +314,58 @@ func (srv *AuthorizationServer) ValidateCode(verifier string, code string) bool 
 	return true
 }
 
+// GenerateToken generates a Token (comprising at least an acesss token) for a specific client,
+// as specified by its ID. A signingKey needs to be specified, otherwise an error is thrown.
+// Optionally, if a refreshKey is specified, that key is used to also create a refresh token.
+func (srv *AuthorizationServer) GenerateToken(clientID string, signingKeyID int, refreshKeyID int) (token *Token, err error) {
+	var (
+		expiry     = time.Now().Add(24 * time.Hour)
+		signingKey *ecdsa.PrivateKey
+		refreshKey *ecdsa.PrivateKey
+		ok         bool
+	)
+
+	token = new(oauth2.Token)
+
+	token.TokenType = "Bearer"
+	token.Expiry = expiry
+
+	signingKey, ok = srv.signingKeys[signingKeyID]
+	if !ok {
+		return nil, errors.New("invalid key ID")
+	}
+
+	// Create a new JWT
+	t := jwt.NewWithClaims(jwt.SigningMethodES256, jwt.RegisteredClaims{
+		Subject:   clientID,
+		ExpiresAt: jwt.NewNumericDate(expiry),
+	})
+	t.Header["kid"] = fmt.Sprintf("%d", signingKeyID)
+
+	if token.AccessToken, err = t.SignedString(signingKey); err != nil {
+		return nil, err
+	}
+
+	// Create a refresh token, if we have a key for it
+	if refreshKeyID != -1 {
+		refreshKey, ok = srv.signingKeys[refreshKeyID]
+		if !ok {
+			return nil, errors.New("invalid key ID")
+		}
+
+		t = jwt.NewWithClaims(jwt.SigningMethodES256, jwt.RegisteredClaims{
+			Subject: clientID,
+		})
+		t.Header["kid"] = fmt.Sprintf("%d", refreshKeyID)
+
+		if token.RefreshToken, err = t.SignedString(refreshKey); err != nil {
+			return nil, err
+		}
+	}
+
+	return
+}
+
 func Error(w http.ResponseWriter, error string, statusCode int) {
 	w.Header().Set("Content-Type", "application/json")
 
@@ -348,48 +400,6 @@ func GenerateSecret() string {
 	rand.Read(b)
 
 	return base64.RawStdEncoding.EncodeToString(b)
-}
-
-// generateToken generates a Token (comprising at least an acesss token) for a specific client,
-// as specified by its ID. A signingKey needs to be specified, otherwise an error is thrown.
-// Optionally, if a refreshKey is specified, that key is used to also create a refresh token.
-func generateToken(clientID string,
-	signingKey *ecdsa.PrivateKey,
-	signingKeyID int,
-	refreshKey *ecdsa.PrivateKey,
-	refreshKeyID int,
-) (token *Token, err error) {
-	var expiry = time.Now().Add(24 * time.Hour)
-
-	token = new(oauth2.Token)
-
-	token.TokenType = "Bearer"
-	token.Expiry = expiry
-
-	// Create a new JWT
-	t := jwt.NewWithClaims(jwt.SigningMethodES256, jwt.RegisteredClaims{
-		Subject:   clientID,
-		ExpiresAt: jwt.NewNumericDate(expiry),
-	})
-	t.Header["kid"] = fmt.Sprintf("%d", signingKeyID)
-
-	if token.AccessToken, err = t.SignedString(signingKey); err != nil {
-		return nil, err
-	}
-
-	// Create a refresh token, if we have a key for it
-	if refreshKey != nil {
-		t = jwt.NewWithClaims(jwt.SigningMethodES256, jwt.RegisteredClaims{
-			Subject: clientID,
-		})
-		t.Header["kid"] = fmt.Sprintf("%d", refreshKeyID)
-
-		if token.RefreshToken, err = t.SignedString(refreshKey); err != nil {
-			return nil, err
-		}
-	}
-
-	return
 }
 
 func GenerateCodeChallenge(verifier string) string {
