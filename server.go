@@ -169,6 +169,8 @@ func (srv *AuthorizationServer) doAuthorizationCodeFlow(w http.ResponseWriter, r
 		client   *Client
 	)
 
+	r.Header.Add("Access-Control-Allow-Origin", "*")
+
 	// Retrieve the client
 	client, err = srv.retrieveClient(r, true)
 	if err != nil {
@@ -299,8 +301,11 @@ func (srv *AuthorizationServer) ValidateCode(verifier string, code string) bool 
 		return false
 	}
 
+	var digest = sha256.Sum256([]byte(verifier))
+	var challenge = base64.RawURLEncoding.EncodeToString(digest[:])
+
 	// Check, if we need to check for a challenge
-	if info.challenge != "" && subtle.ConstantTimeCompare([]byte(base64.URLEncoding.EncodeToString(sha256.New().Sum([]byte(verifier)))), []byte(info.challenge)) == 0 {
+	if info.challenge != "" && subtle.ConstantTimeCompare([]byte(challenge), []byte(info.challenge)) == 0 {
 		return false
 	}
 
