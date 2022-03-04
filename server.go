@@ -406,7 +406,7 @@ func GenerateSecret() string {
 
 	rand.Read(b)
 
-	return base64.RawStdEncoding.EncodeToString(b)
+	return base64.RawURLEncoding.EncodeToString(b)
 }
 
 func GenerateCodeChallenge(verifier string) string {
