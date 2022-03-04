@@ -733,3 +733,48 @@ func TestAuthorizationServer_GenerateToken(t *testing.T) {
 		})
 	}
 }
+
+func TestNewServer(t *testing.T) {
+	type args struct {
+		addr string
+		opts []AuthorizationServerOption
+	}
+	tests := []struct {
+		name string
+		args args
+		want *AuthorizationServer
+	}{
+		{
+			name: "with signing keys func",
+			args: args{
+				opts: []AuthorizationServerOption{
+					WithSigningKeysFunc(func() (keys map[int]*ecdsa.PrivateKey) {
+						return map[int]*ecdsa.PrivateKey{
+							0: &mockSigningKey,
+						}
+					})},
+			},
+			want: &AuthorizationServer{
+				clients: []*Client{},
+				codes:   map[string]*codeInfo{},
+				signingKeys: map[int]*ecdsa.PrivateKey{
+					0: &mockSigningKey,
+				},
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := NewServer(tt.args.addr, tt.args.opts...)
+
+			// Ignore Server.Handler in comparison because we create a new ServeMux
+			got.Handler = nil
+			tt.want.Handler = nil
+
+			if !reflect.DeepEqual(got, tt.want) {
+				t.Errorf("NewServer() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}

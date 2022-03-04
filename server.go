@@ -50,6 +50,8 @@ type AuthorizationServer struct {
 
 type AuthorizationServerOption func(srv *AuthorizationServer)
 
+type signingKeysFunc func() (keys map[int]*ecdsa.PrivateKey)
+
 type CodeIssuer interface {
 	IssueCode(challenge string) string
 	ValidateCode(verifier string, code string) bool
@@ -69,6 +71,12 @@ func WithClient(
 	}
 }
 
+func WithSigningKeysFunc(f signingKeysFunc) AuthorizationServerOption {
+	return func(srv *AuthorizationServer) {
+		srv.signingKeys = f()
+	}
+}
+
 func NewServer(addr string, opts ...AuthorizationServerOption) *AuthorizationServer {
 	mux := http.NewServeMux()
 
@@ -85,10 +93,9 @@ func NewServer(addr string, opts ...AuthorizationServerOption) *AuthorizationSer
 		o(srv)
 	}
 
-	// Create a new private key
-	var signingKey, _ = ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
-
-	srv.signingKeys = map[int]*ecdsa.PrivateKey{0: signingKey}
+	if srv.signingKeys == nil {
+		srv.signingKeys = generateSigningKeys()
+	}
 
 	mux.HandleFunc("/token", srv.handleToken)
 	mux.HandleFunc("/.well-known/jwks.json", srv.handleJWKS)
@@ -405,4 +412,11 @@ func GenerateSecret() string {
 func GenerateCodeChallenge(verifier string) string {
 	var digest = sha256.Sum256([]byte(verifier))
 	return base64.RawURLEncoding.EncodeToString(digest[:])
+}
+
+// generateSigningKeys generates a set of signing keys
+func generateSigningKeys() map[int]*ecdsa.PrivateKey {
+	var signingKey, _ = ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+
+	return map[int]*ecdsa.PrivateKey{0: signingKey}
 }
