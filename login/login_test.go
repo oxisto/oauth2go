@@ -518,3 +518,47 @@ func Test_handler_parseReturnURL(t *testing.T) {
 		})
 	}
 }
+
+func Test_secureCookie(t *testing.T) {
+	type args struct {
+		r *http.Request
+	}
+	tests := []struct {
+		name string
+		args args
+		want bool
+	}{
+		{
+			name: "Safari on HTTP localhost",
+			args: args{
+				r: func() *http.Request {
+					r, _ := http.NewRequest("GET", "/login", nil)
+					r.Header.Add("User-Agent", "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/15.3 Safari/605.1.15")
+					r.Host = "localhost:1234"
+
+					return r
+				}(),
+			},
+			want: false,
+		},
+		{
+			name: "Some other domain",
+			args: args{
+				r: func() *http.Request {
+					r, _ := http.NewRequest("GET", "/login", nil)
+					r.Host = "example.com"
+
+					return r
+				}(),
+			},
+			want: true,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := secureCookie(tt.args.r); got != tt.want {
+				t.Errorf("secureCookie() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
