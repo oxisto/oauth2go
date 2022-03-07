@@ -17,6 +17,7 @@ import (
 	"net/http"
 	"net/url"
 	"path"
+	"strings"
 	"sync"
 	"time"
 
@@ -52,14 +53,14 @@ func (s *session) Anonymous() bool {
 
 // Cookie returns a new http.Cookie issued for path, that can contains the session ID
 // and sensible cookie attributes, such as Secure and HttpOnly.
-func (s *session) Cookie(path string) *http.Cookie {
+func (s *session) Cookie(path string, r *http.Request) *http.Cookie {
 	return &http.Cookie{
 		Name:     "id",
 		Value:    s.ID,
 		Path:     path,
 		Expires:  s.ExpireAt,
 		SameSite: http.SameSiteLaxMode,
-		Secure:   true,
+		Secure:   secureCookie(r),
 		HttpOnly: true,
 	}
 }
@@ -153,12 +154,12 @@ func (h *handler) newSession() *session {
 	return &session
 }
 
-func (h *handler) updateSession(w http.ResponseWriter, session *session, user *User) {
+func (h *handler) updateSession(w http.ResponseWriter, r *http.Request, session *session, user *User) {
 	h.sm.Lock()
 	session.User = user
 	h.sm.Unlock()
 
-	http.SetCookie(w, session.Cookie(h.baseURL))
+	http.SetCookie(w, session.Cookie(h.baseURL, r))
 
 	h.log.Printf("Associating session with id %s to user %s", session.ID, user.Name)
 }
@@ -241,7 +242,7 @@ func (h *handler) doLoginPost(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Associate the user with the session and
-	h.updateSession(w, session, user)
+	h.updateSession(w, r, session, user)
 
 	// Everything good, lets redirect to the return URL.
 	http.Redirect(w, r, returnURL, http.StatusFound)
@@ -331,7 +332,22 @@ func (h *handler) extractSession(w http.ResponseWriter, r *http.Request) (sessio
 	}
 
 	// Make sure, to send the cookie with the session ID back to the client
-	http.SetCookie(w, session.Cookie(h.baseURL))
+	http.SetCookie(w, session.Cookie(h.baseURL, r))
 
 	return session
+}
+
+// secureCookie returns true or false, whether the cookie should set the secure flag.
+// This is necessary because in some browser (looking at you, Safari), an HTTP connection to
+// "localhost" is not regarded as "secure" anymore. So for local deployments, we need to drop
+// the secure flag, otherwise our login won't work.
+func secureCookie(r *http.Request) bool {
+	// This is a very basic heuristic to allow cookies for Safari on HTTP connections to localhost
+	if strings.Contains(r.UserAgent(), "Safari") &&
+		(r.Host == "localhost" || strings.Index(r.Host, "localhost:") == 0) &&
+		r.TLS == nil {
+		return false
+	}
+
+	return true
 }
