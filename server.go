@@ -27,6 +27,8 @@ const (
 	ErrorInvalidRequest = "invalid_request"
 	ErrorInvalidClient  = "invalid_client"
 	ErrorInvalidGrant   = "invalid_grant"
+
+	DefaultExpireIn = time.Hour * 24
 )
 
 type codeInfo struct {
@@ -162,7 +164,7 @@ func (srv *AuthorizationServer) doClientCredentialsFlow(w http.ResponseWriter, r
 		return
 	}
 
-	writeJSON(w, token)
+	writeToken(w, token)
 }
 
 // doAuthorizationCodeFlow implements the Authorization Code Grant
@@ -206,7 +208,7 @@ func (srv *AuthorizationServer) doAuthorizationCodeFlow(w http.ResponseWriter, r
 		return
 	}
 
-	writeJSON(w, token)
+	writeToken(w, token)
 }
 
 func (srv *AuthorizationServer) handleJWKS(w http.ResponseWriter, r *http.Request) {
@@ -326,7 +328,7 @@ func (srv *AuthorizationServer) ValidateCode(verifier string, code string) bool 
 // Optionally, if a refreshKey is specified, that key is used to also create a refresh token.
 func (srv *AuthorizationServer) GenerateToken(clientID string, signingKeyID int, refreshKeyID int) (token *Token, err error) {
 	var (
-		expiry     = time.Now().Add(24 * time.Hour)
+		expiry     = time.Now().Add(DefaultExpireIn)
 		signingKey *ecdsa.PrivateKey
 		refreshKey *ecdsa.PrivateKey
 		ok         bool
@@ -390,6 +392,25 @@ func RedirectError(w http.ResponseWriter,
 	params.Add("error_description", errorDescription)
 
 	http.Redirect(w, r, fmt.Sprintf("%s?%s", redirectURI, params.Encode()), http.StatusFound)
+}
+
+func writeToken(w http.ResponseWriter, token *oauth2.Token) {
+	// We need to transform this into our own struct, otherwise
+	// the expiry will be translated into a string representation,
+	// while it should be represented as seconds.
+	s := struct {
+		AccessToken  string `json:"access_token"`
+		RefreshToken string `json:"refresh_token"`
+		TokenType    string `json:"token_type"`
+		Expiry       int    `json:"expires_in"`
+	}{
+		AccessToken:  token.AccessToken,
+		RefreshToken: token.RefreshToken,
+		TokenType:    token.TokenType,
+		Expiry:       int(time.Until(token.Expiry).Seconds()),
+	}
+
+	writeJSON(w, s)
 }
 
 func writeJSON(w http.ResponseWriter, value interface{}) {
