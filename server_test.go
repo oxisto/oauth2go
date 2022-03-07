@@ -563,7 +563,6 @@ func TestAuthorizationServer_doAuthorizationCodeFlow(t *testing.T) {
 
 func TestAuthorizationServer_doRefreshTokenFlow(t *testing.T) {
 	type fields struct {
-		Server      http.Server
 		clients     []*Client
 		signingKeys map[int]*ecdsa.PrivateKey
 		codes       map[string]*codeInfo
@@ -685,10 +684,10 @@ func TestAuthorizationServer_doRefreshTokenFlow(t *testing.T) {
 			wantBody: `error while creating JWT`,
 		},
 	}
+
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			srv := &AuthorizationServer{
-				Server:      tt.fields.Server,
 				clients:     tt.fields.clients,
 				signingKeys: tt.fields.signingKeys,
 				codes:       tt.fields.codes,
