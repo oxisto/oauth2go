@@ -3,6 +3,7 @@ package oauth2
 import (
 	"crypto/ecdsa"
 	"crypto/elliptic"
+	"crypto/rand"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -15,6 +16,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/golang-jwt/jwt/v4"
 	"github.com/oxisto/oauth2go/internal/mock"
 )
 
@@ -38,17 +40,34 @@ var badSigningKey = ecdsa.PrivateKey{
 	},
 }
 
-var mockSigningKey = ecdsa.PrivateKey{
-	D: big.NewInt(1),
-	PublicKey: ecdsa.PublicKey{
-		X:     big.NewInt(1),
-		Y:     big.NewInt(2),
-		Curve: elliptic.P256(),
-	},
-}
-
+var testSigningKey *ecdsa.PrivateKey
 var testVerifier = "012345678901234567890123456789012345678901234567890123456789"
 var testChallenge = GenerateCodeChallenge(testVerifier)
+
+// testRefreshTokenClientKID1MockSingingKey is a valid refresh token signed by mockSigningKey with the KID 1
+var testRefreshTokenClientKID1MockSingingKey string
+
+func init() {
+	var (
+		err error
+		t   *jwt.Token
+	)
+
+	testSigningKey, err = ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	if err != nil {
+		panic(err)
+	}
+
+	t = jwt.NewWithClaims(jwt.SigningMethodES256, jwt.RegisteredClaims{
+		Subject: "client",
+	})
+	t.Header["kid"] = fmt.Sprintf("%d", 1)
+
+	testRefreshTokenClientKID1MockSingingKey, err = t.SignedString(testSigningKey)
+	if err != nil {
+		panic(err)
+	}
+}
 
 func TestAuthorizationServer_handleToken(t *testing.T) {
 	type fields struct {
@@ -542,6 +561,155 @@ func TestAuthorizationServer_doAuthorizationCodeFlow(t *testing.T) {
 	}
 }
 
+func TestAuthorizationServer_doRefreshTokenFlow(t *testing.T) {
+	type fields struct {
+		Server      http.Server
+		clients     []*Client
+		signingKeys map[int]*ecdsa.PrivateKey
+		codes       map[string]*codeInfo
+	}
+	type args struct {
+		r *http.Request
+	}
+	tests := []struct {
+		name     string
+		fields   fields
+		args     args
+		wantCode int
+		wantBody string
+	}{
+		{
+			name: "missing refresh token",
+			args: args{
+				r: &http.Request{
+					Method: "POST",
+					Header: http.Header{
+						http.CanonicalHeaderKey("Content-Type"): []string{"application/x-www-form-urlencoded"},
+					},
+					Body: nil,
+				},
+			},
+			wantCode: http.StatusBadRequest,
+			wantBody: `{"error": "invalid_request"}`,
+		},
+		{
+			name: "invalid refresh token",
+			args: args{
+				r: &http.Request{
+					Method: "POST",
+					Header: http.Header{
+						http.CanonicalHeaderKey("Content-Type"): []string{"application/x-www-form-urlencoded"},
+					},
+					Body: io.NopCloser(strings.NewReader(fmt.Sprintf("refresh_token=%s", "notatoken"))),
+				},
+			},
+			wantCode: http.StatusBadRequest,
+			wantBody: `{"error": "invalid_grant"}`,
+		},
+		{
+			name: "wrong client",
+			fields: fields{
+				clients: []*Client{
+					{
+						ClientID:     "notclient",
+						ClientSecret: "secret",
+					},
+				},
+				signingKeys: map[int]*ecdsa.PrivateKey{
+					0: &badSigningKey,
+					1: testSigningKey,
+				},
+			},
+			args: args{
+				r: &http.Request{
+					Method: "POST",
+					Header: http.Header{
+						http.CanonicalHeaderKey("Content-Type"): []string{"application/x-www-form-urlencoded"},
+					},
+					Body: io.NopCloser(strings.NewReader(fmt.Sprintf("refresh_token=%s", testRefreshTokenClientKID1MockSingingKey))),
+				},
+			},
+			wantCode: http.StatusUnauthorized,
+			wantBody: `{"error": "invalid_client"}`,
+		},
+		{
+			name: "missing authentication for confidential client",
+			fields: fields{
+				clients: []*Client{
+					{
+						ClientID:     "client",
+						ClientSecret: "secret",
+					},
+				},
+				signingKeys: map[int]*ecdsa.PrivateKey{
+					0: &badSigningKey,
+					1: testSigningKey,
+				},
+			},
+			args: args{
+				r: &http.Request{
+					Method: "POST",
+					Header: http.Header{
+						http.CanonicalHeaderKey("Content-Type"): []string{"application/x-www-form-urlencoded"},
+					},
+					Body: io.NopCloser(strings.NewReader(fmt.Sprintf("refresh_token=%s", testRefreshTokenClientKID1MockSingingKey))),
+				},
+			},
+			wantCode: http.StatusUnauthorized,
+			wantBody: `{"error": "invalid_client"}`,
+		},
+		{
+			name: "problem with JWT creation",
+			fields: fields{
+				clients: []*Client{
+					{
+						ClientID:     "client",
+						ClientSecret: "",
+					},
+				},
+				signingKeys: map[int]*ecdsa.PrivateKey{
+					0: &badSigningKey,
+					1: testSigningKey,
+				},
+			},
+			args: args{
+				r: &http.Request{
+					Method: "POST",
+					Header: http.Header{
+						http.CanonicalHeaderKey("Content-Type"): []string{"application/x-www-form-urlencoded"},
+					},
+					Body: io.NopCloser(strings.NewReader(fmt.Sprintf("refresh_token=%s", testRefreshTokenClientKID1MockSingingKey))),
+				},
+			},
+			wantCode: http.StatusInternalServerError,
+			wantBody: `error while creating JWT`,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			srv := &AuthorizationServer{
+				Server:      tt.fields.Server,
+				clients:     tt.fields.clients,
+				signingKeys: tt.fields.signingKeys,
+				codes:       tt.fields.codes,
+			}
+
+			rr := httptest.NewRecorder()
+			srv.doRefreshTokenFlow(rr, tt.args.r)
+
+			gotCode := rr.Code
+			if gotCode != tt.wantCode {
+				t.Errorf("AuthorizationServer.doRefreshTokenFlow() code = %v, wantCode %v", gotCode, tt.wantCode)
+			}
+
+			gotBody := strings.Trim(rr.Body.String(), "\n")
+			if gotBody != tt.wantBody {
+				t.Errorf("AuthorizationServer.doRefreshTokenFlow() body = %v, wantBody %v", gotBody, tt.wantBody)
+			}
+		})
+	}
+}
+
 func TestAuthorizationServer_ValidateCode(t *testing.T) {
 	type fields struct {
 		clients     []*Client
@@ -670,7 +838,7 @@ func TestAuthorizationServer_GenerateToken(t *testing.T) {
 			name: "invalid key ID",
 			fields: fields{
 				signingKeys: map[int]*ecdsa.PrivateKey{
-					0: &mockSigningKey,
+					0: testSigningKey,
 				},
 			},
 			args: args{
@@ -684,7 +852,7 @@ func TestAuthorizationServer_GenerateToken(t *testing.T) {
 			name: "bad refresh key",
 			fields: fields{
 				signingKeys: map[int]*ecdsa.PrivateKey{
-					0: &mockSigningKey,
+					0: testSigningKey,
 					1: &badSigningKey,
 				},
 			},
@@ -700,7 +868,7 @@ func TestAuthorizationServer_GenerateToken(t *testing.T) {
 			name: "invalid refresh key ID",
 			fields: fields{
 				signingKeys: map[int]*ecdsa.PrivateKey{
-					0: &mockSigningKey,
+					0: testSigningKey,
 				},
 			},
 			args: args{
@@ -750,7 +918,7 @@ func TestNewServer(t *testing.T) {
 				opts: []AuthorizationServerOption{
 					WithSigningKeysFunc(func() (keys map[int]*ecdsa.PrivateKey) {
 						return map[int]*ecdsa.PrivateKey{
-							0: &mockSigningKey,
+							0: testSigningKey,
 						}
 					})},
 			},
@@ -758,7 +926,7 @@ func TestNewServer(t *testing.T) {
 				clients: []*Client{},
 				codes:   map[string]*codeInfo{},
 				signingKeys: map[int]*ecdsa.PrivateKey{
-					0: &mockSigningKey,
+					0: testSigningKey,
 				},
 			},
 		},

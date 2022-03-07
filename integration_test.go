@@ -10,6 +10,7 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/golang-jwt/jwt/v4"
 	oauth2 "github.com/oxisto/oauth2go"
@@ -63,6 +64,8 @@ func TestThreeLeggedFlowPublicClient(t *testing.T) {
 		form      url.Values
 		session   *http.Cookie
 		token     *oauth2.Token
+		newToken  *oauth2.Token
+		source    oauth2.TokenSource
 		code      string
 		challenge string
 		verifier  string
@@ -160,11 +163,34 @@ func TestThreeLeggedFlowPublicClient(t *testing.T) {
 	}
 
 	if token.AccessToken == "" {
-		t.Error("Access token is empty", err)
+		t.Error("Access token is empty")
 	}
 
 	if token.RefreshToken == "" {
-		t.Error("Access token is empty", err)
+		t.Error("Access token is empty")
+	}
+
+	// For some extra fun, let's use our refresh token by declaring our token expired
+	token.Expiry = time.Now().Add(-5 * time.Minute)
+	source = config.TokenSource(context.Background(), token)
+
+	newToken, err = source.Token()
+	if err != nil {
+		t.Errorf("Error while fetching from token source: %v", err)
+	}
+
+	if newToken.AccessToken == "" {
+		t.Error("Access token is empty")
+	}
+
+	// Access tokens should be different
+	if newToken.AccessToken == token.AccessToken {
+		t.Error("New token is not different")
+	}
+
+	// Refresh tokens should be the same
+	if newToken.RefreshToken != token.RefreshToken {
+		t.Error("Refresh token is different")
 	}
 }
 

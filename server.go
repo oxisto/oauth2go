@@ -12,6 +12,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
+	"strconv"
 	"time"
 
 	"github.com/golang-jwt/jwt/v4"
@@ -135,6 +136,8 @@ func (srv *AuthorizationServer) handleToken(w http.ResponseWriter, r *http.Reque
 		srv.doClientCredentialsFlow(w, r)
 	case "authorization_code":
 		srv.doAuthorizationCodeFlow(w, r)
+	case "refresh_token":
+		srv.doRefreshTokenFlow(w, r)
 	default:
 		Error(w, "unsupported_grant_type", http.StatusBadRequest)
 		return
@@ -203,6 +206,65 @@ func (srv *AuthorizationServer) doAuthorizationCodeFlow(w http.ResponseWriter, r
 	}
 
 	token, err = srv.GenerateToken(client.ClientID, 0, 0)
+	if err != nil {
+		http.Error(w, "error while creating JWT", http.StatusInternalServerError)
+		return
+	}
+
+	writeToken(w, token)
+}
+
+// doRefreshTokenFlow implements refreshing an access token.
+// See https://datatracker.ietf.org/doc/html/rfc6749#section-6).
+func (srv *AuthorizationServer) doRefreshTokenFlow(w http.ResponseWriter, r *http.Request) {
+	var (
+		err          error
+		refreshToken string
+		claims       jwt.RegisteredClaims
+		client       *Client
+		token        *Token
+	)
+
+	// Retrieve the token first, as we need it to find out which client this is
+	refreshToken = r.FormValue("refresh_token")
+	if refreshToken == "" {
+		Error(w, ErrorInvalidRequest, http.StatusBadRequest)
+		return
+	}
+
+	// Try to parse it as a JWT
+	_, err = jwt.ParseWithClaims(refreshToken, &claims, func(t *jwt.Token) (interface{}, error) {
+		kid, _ := strconv.ParseInt(t.Header["kid"].(string), 10, 64)
+
+		return srv.PublicKeys()[kid], nil
+	})
+	if err != nil {
+		fmt.Printf("%+v", err)
+		Error(w, ErrorInvalidGrant, http.StatusBadRequest)
+		return
+	}
+
+	// The subject contains our client ID.
+	client, err = srv.GetClient(claims.Subject)
+	if err != nil {
+		Error(w, ErrorInvalidClient, http.StatusUnauthorized)
+		return
+	}
+
+	// If this is a public client, we can issue a new token
+	if client.ClientSecret == "" {
+		goto issue
+	}
+
+	// Otherwise, we must check for authentication
+	client, err = srv.retrieveClient(r, false)
+	if err != nil {
+		Error(w, ErrorInvalidClient, http.StatusUnauthorized)
+		return
+	}
+
+issue:
+	token, err = srv.GenerateToken(client.ClientID, 0, -1)
 	if err != nil {
 		http.Error(w, "error while creating JWT", http.StatusInternalServerError)
 		return
