@@ -26,12 +26,13 @@ func TestWithLoginPage(t *testing.T) {
 				opts: []handlerOption{
 					WithPassswordHasher(&mockPasswordHasher{GenerateFromPasswordError: errors.New("some error")}),
 					WithUser("admin", "admin"),
+					WithBaseURL("/oauth"),
 				},
 			},
 			want: &handler{
 				sessions: make(map[string]*session),
 				users:    []*User{},
-				baseURL:  "/",
+				baseURL:  "/oauth",
 				log:      log.Default(),
 				pwh:      &mockPasswordHasher{GenerateFromPasswordError: errors.New("some error")},
 				files:    embedFS,

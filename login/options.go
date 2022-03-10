@@ -28,6 +28,12 @@ func WithPassswordHasher(pwh PasswordHasher) handlerOption {
 	}
 }
 
+func WithBaseURL(url string) handlerOption {
+	return func(h *handler) {
+		h.baseURL = url
+	}
+}
+
 func WithUser(name string, password string) handlerOption {
 	return func(srv *handler) {
 		hash, err := srv.pwh.GenerateFromPassword([]byte(password))
