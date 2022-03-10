@@ -191,7 +191,12 @@ func (h *handler) doLoginGet(w http.ResponseWriter, r *http.Request) {
 	session = h.extractSession(w, r)
 
 	// Prepare the login form. We are using a masked CSRF token for each request
-	form = loginForm{returnURL: returnURL, fs: h.files, csrfToken: csrf.Mask(session.CSRFToken)}
+	form = loginForm{
+		returnURL: returnURL,
+		loginURL:  path.Join(h.baseURL, "/login"),
+		fs:        h.files,
+		csrfToken: csrf.Mask(session.CSRFToken),
+	}
 
 	// Check, if we have an additional failure message
 	if r.URL.Query().Has("failed") {

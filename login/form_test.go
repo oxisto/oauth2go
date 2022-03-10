@@ -14,6 +14,7 @@ import (
 func Test_loginForm_ServeHTTP(t *testing.T) {
 	type fields struct {
 		returnURL    string
+		loginURL     string
 		errorMessage string
 		fs           fs.FS
 	}
@@ -58,10 +59,11 @@ func Test_loginForm_ServeHTTP(t *testing.T) {
 				},
 			},
 			fields: fields{
-				fs: &mockFS{File: &mockFile{content: "test"}},
+				fs:       &mockFS{File: &mockFile{content: "{{.LoginURL}}"}},
+				loginURL: "/test",
 			},
 			wantCode: http.StatusOK,
-			wantBody: "test",
+			wantBody: "/test",
 		},
 		{
 			name: "valid template with error while writing",
@@ -82,6 +84,7 @@ func Test_loginForm_ServeHTTP(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			form := loginForm{
 				returnURL:    tt.fields.returnURL,
+				loginURL:     tt.fields.loginURL,
 				errorMessage: tt.fields.errorMessage,
 				fs:           tt.fields.fs,
 			}
