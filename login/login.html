@@ -54,7 +54,7 @@
         {{if .ErrorMessage}}
         <div class="error">{{.ErrorMessage}}</div>
         {{end}}
-        <form action="/login" method="POST" autocomplete="off">
+        <form action="{{.LoginURL}}" method="POST" autocomplete="off">
             <input type="hidden" name="csrf_token" value="{{.CSRFToken}}">
             <input type="hidden" name="return_url" value="{{.ReturnURL}}">
 

@@ -12,6 +12,9 @@ type loginForm struct {
 	// after a successfull login
 	returnURL string
 
+	// loginURL is the URL the login form will POST to
+	loginURL string
+
 	// errorMessage is an optional error message to display in the login form
 	errorMessage string
 
@@ -32,6 +35,7 @@ func (form loginForm) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	err = tmpl.Execute(w, map[string]interface{}{
 		"ErrorMessage": form.errorMessage,
 		"ReturnURL":    form.returnURL,
+		"LoginURL":     form.loginURL,
 		"CSRFToken":    form.csrfToken,
 	})
 	if err != nil {
