@@ -159,6 +159,7 @@ func Test_handler_handleAuthorize(t *testing.T) {
 				users:    []*User{},
 				log:      log.Default(),
 				pwh:      bcryptHasher{},
+				baseURL:  "/oauth/",
 				srv:      oauth2.NewServer(":0", oauth2.WithClient("client", "secret", "/test")),
 			},
 			args: args{
@@ -167,7 +168,7 @@ func Test_handler_handleAuthorize(t *testing.T) {
 			wantCode: http.StatusFound,
 			wantHeaderRegexp: http.Header{
 				// Should redirect to login page but with this authorize endpoint as return URL
-				"Location": []string{"/login\\?return_url=%2Fauthorize%3Fclient_id%3Dclient%26redirect_uri%3D%2Ftest%26response_type%3Dcode%26code_challenge%3D0123456789%26code_challenge_method%3DS256"},
+				"Location": []string{"/oauth/login\\?return_url=%2Fauthorize%3Fclient_id%3Dclient%26redirect_uri%3D%2Ftest%26response_type%3Dcode%26code_challenge%3D0123456789%26code_challenge_method%3DS256"},
 			},
 		},
 		{

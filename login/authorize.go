@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
+	"path"
 
 	oauth2 "github.com/oxisto/oauth2go"
 )
@@ -62,7 +63,7 @@ func (h *handler) handleAuthorize(w http.ResponseWriter, r *http.Request) {
 		params.Add("return_url", r.RequestURI)
 
 		// Redirect to our login page
-		http.Redirect(w, r, fmt.Sprintf("/login?%s", params.Encode()), http.StatusFound)
+		http.Redirect(w, r, fmt.Sprintf("%s?%s", path.Join(h.baseURL, "/login"), params.Encode()), http.StatusFound)
 	} else {
 		var params = url.Values{}
 		params.Add("code", h.srv.IssueCode(challenge))
