@@ -49,6 +49,9 @@ type AuthorizationServer struct {
 
 	// our codes and their expiry time and challenge
 	codes map[string]*codeInfo
+
+	// the allowed CORS origin
+	allowedOrigin string
 }
 
 type AuthorizationServerOption func(srv *AuthorizationServer)
@@ -77,6 +80,12 @@ func WithClient(
 func WithSigningKeysFunc(f signingKeysFunc) AuthorizationServerOption {
 	return func(srv *AuthorizationServer) {
 		srv.signingKeys = f()
+	}
+}
+
+func WithAllowedOrigins(origin string) AuthorizationServerOption {
+	return func(srv *AuthorizationServer) {
+		srv.allowedOrigin = origin
 	}
 }
 
@@ -181,7 +190,9 @@ func (srv *AuthorizationServer) doAuthorizationCodeFlow(w http.ResponseWriter, r
 		client   *Client
 	)
 
-	w.Header().Add("Access-Control-Allow-Origin", "*")
+	if srv.allowedOrigin != "" {
+		w.Header().Add("Access-Control-Allow-Origin", srv.allowedOrigin)
+	}
 
 	// Retrieve the client
 	client, err = srv.retrieveClient(r, true)

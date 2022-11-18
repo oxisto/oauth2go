@@ -40,6 +40,7 @@ func main() {
 		oauth2.WithClient("client", *clientSecret, *redirectURI),
 		oauth2.WithClient("public", "", *redirectURI),
 		login.WithLoginPage(login.WithUser("admin", *userPassword)),
+		oauth2.WithAllowedOrigins("*"),
 	)
 	srv.BaseContext = ctx
 
