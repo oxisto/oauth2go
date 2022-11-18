@@ -420,9 +420,10 @@ func TestAuthorizationServer_doClientCredentialsFlow(t *testing.T) {
 
 func TestAuthorizationServer_doAuthorizationCodeFlow(t *testing.T) {
 	type fields struct {
-		clients     []*Client
-		signingKeys map[int]*ecdsa.PrivateKey
-		codes       map[string]*codeInfo
+		clients       []*Client
+		signingKeys   map[int]*ecdsa.PrivateKey
+		codes         map[string]*codeInfo
+		allowedOrigin string
 	}
 	type args struct {
 		r *http.Request
@@ -434,6 +435,22 @@ func TestAuthorizationServer_doAuthorizationCodeFlow(t *testing.T) {
 		wantCode int
 		wantBody string
 	}{
+		{
+			name: "cors header",
+			fields: fields{
+				allowedOrigin: "*",
+			},
+			args: args{
+				r: &http.Request{
+					Method: "POST",
+					Header: http.Header{
+						http.CanonicalHeaderKey("Authorization"): []string{"notvalid"},
+					},
+				},
+			},
+			wantCode: http.StatusUnauthorized,
+			wantBody: `{"error": "invalid_client"}`,
+		},
 		{
 			name: "missing or invalid authorization",
 			args: args{
@@ -541,9 +558,10 @@ func TestAuthorizationServer_doAuthorizationCodeFlow(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			srv := &AuthorizationServer{
-				clients:     tt.fields.clients,
-				signingKeys: tt.fields.signingKeys,
-				codes:       tt.fields.codes,
+				clients:       tt.fields.clients,
+				signingKeys:   tt.fields.signingKeys,
+				codes:         tt.fields.codes,
+				allowedOrigin: tt.fields.allowedOrigin,
 			}
 			rr := httptest.NewRecorder()
 			srv.doAuthorizationCodeFlow(rr, tt.args.r)
