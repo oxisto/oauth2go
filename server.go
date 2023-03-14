@@ -199,7 +199,7 @@ func (srv *AuthorizationServer) doClientCredentialsFlow(w http.ResponseWriter, r
 		return
 	}
 
-	writeToken(w, token)
+	srv.writeToken(w, token)
 }
 
 // doAuthorizationCodeFlow implements the Authorization Code Grant
@@ -212,10 +212,6 @@ func (srv *AuthorizationServer) doAuthorizationCodeFlow(w http.ResponseWriter, r
 		token    *oauth2.Token
 		client   *Client
 	)
-
-	if srv.allowedOrigin != "" {
-		w.Header().Add("Access-Control-Allow-Origin", srv.allowedOrigin)
-	}
 
 	// Retrieve the client
 	client, err = srv.retrieveClient(r, true)
@@ -245,7 +241,7 @@ func (srv *AuthorizationServer) doAuthorizationCodeFlow(w http.ResponseWriter, r
 		return
 	}
 
-	writeToken(w, token)
+	srv.writeToken(w, token)
 }
 
 // doRefreshTokenFlow implements refreshing an access token.
@@ -304,7 +300,7 @@ issue:
 		return
 	}
 
-	writeToken(w, token)
+	srv.writeToken(w, token)
 }
 
 // GetClient returns the client for the given ID or ErrClientNotFound.
@@ -444,6 +440,12 @@ func (srv *AuthorizationServer) GenerateToken(clientID string, signingKeyID int,
 	return
 }
 
+func (srv *AuthorizationServer) cors(w http.ResponseWriter) {
+	if srv.allowedOrigin != "" {
+		w.Header().Add("Access-Control-Allow-Origin", srv.allowedOrigin)
+	}
+}
+
 func Error(w http.ResponseWriter, error string, statusCode int) {
 	w.Header().Set("Content-Type", "application/json")
 
@@ -463,7 +465,7 @@ func RedirectError(w http.ResponseWriter,
 	http.Redirect(w, r, fmt.Sprintf("%s?%s", redirectURI, params.Encode()), http.StatusFound)
 }
 
-func writeToken(w http.ResponseWriter, token *oauth2.Token) {
+func (srv *AuthorizationServer) writeToken(w http.ResponseWriter, token *oauth2.Token) {
 	// We need to transform this into our own struct, otherwise
 	// the expiry will be translated into a string representation,
 	// while it should be represented as seconds.
@@ -479,11 +481,13 @@ func writeToken(w http.ResponseWriter, token *oauth2.Token) {
 		Expiry:       int(time.Until(token.Expiry).Seconds()),
 	}
 
-	writeJSON(w, s)
+	srv.writeJSON(w, s)
 }
 
-func writeJSON(w http.ResponseWriter, value interface{}) {
+func (srv *AuthorizationServer) writeJSON(w http.ResponseWriter, value interface{}) {
 	w.Header().Set("Content-Type", "application/json")
+
+	srv.cors(w)
 
 	if err := json.NewEncoder(w).Encode(value); err != nil {
 		Error(w, "could not encode JSON", http.StatusInternalServerError)
