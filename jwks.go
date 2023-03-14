@@ -48,5 +48,5 @@ func (srv *AuthorizationServer) handleJWKS(w http.ResponseWriter, r *http.Reques
 			})
 	}
 
-	writeJSON(w, keySet)
+	srv.writeJSON(w, keySet)
 }

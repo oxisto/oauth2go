@@ -37,5 +37,5 @@ func (srv *AuthorizationServer) handleMetadata(w http.ResponseWriter, r *http.Re
 		return
 	}
 
-	writeJSON(w, srv.metadata)
+	srv.writeJSON(w, srv.metadata)
 }
