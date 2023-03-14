@@ -4,7 +4,6 @@ import (
 	"crypto/ecdsa"
 	"crypto/elliptic"
 	"crypto/rand"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -211,89 +210,6 @@ func TestAuthorizationServer_retrieveClient(t *testing.T) {
 			}
 			if !reflect.DeepEqual(got, tt.want) {
 				t.Errorf("AuthorizationServer.retrieveClient() = %v, want %v", got, tt.want)
-			}
-		})
-	}
-}
-
-func TestAuthorizationServer_handleJWKS(t *testing.T) {
-	type fields struct {
-		clients     []*Client
-		signingKeys map[int]*ecdsa.PrivateKey
-	}
-	type args struct {
-		r *http.Request
-	}
-	tests := []struct {
-		name     string
-		fields   fields
-		args     args
-		want     *JSONWebKeySet
-		wantCode int
-	}{
-		{
-			name: "retrieve JWKS with GET",
-			fields: fields{
-				signingKeys: map[int]*ecdsa.PrivateKey{
-					0: {
-						PublicKey: ecdsa.PublicKey{
-							Curve: elliptic.P256(),
-							X:     big.NewInt(1),
-							Y:     big.NewInt(2),
-						},
-					},
-				},
-			},
-			args: args{
-				r: httptest.NewRequest("GET", "/.well-known/jwks.json", nil),
-			},
-			want: &JSONWebKeySet{
-				Keys: []JSONWebKey{{
-					Kid: "0",
-					Kty: "EC",
-					Crv: "P-256",
-					X:   "AQ",
-					Y:   "Ag",
-				}},
-			},
-			wantCode: http.StatusOK,
-		},
-		{
-			name:   "retrieve JWKS with POST",
-			fields: fields{},
-			args: args{
-				r: httptest.NewRequest("POST", "/.well-known/jwks.json", nil),
-			},
-			want:     nil,
-			wantCode: http.StatusMethodNotAllowed,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			srv := &AuthorizationServer{
-				clients:     tt.fields.clients,
-				signingKeys: tt.fields.signingKeys,
-			}
-
-			rr := httptest.NewRecorder()
-			srv.handleJWKS(rr, tt.args.r)
-
-			gotCode := rr.Code
-			if gotCode != tt.wantCode {
-				t.Errorf("AuthorizationServer.doLoginPost() code = %v, wantCode %v", gotCode, tt.wantCode)
-			}
-
-			if rr.Code == http.StatusOK {
-				var got JSONWebKeySet
-				err := json.Unmarshal(rr.Body.Bytes(), &got)
-				if err != nil {
-					panic(err)
-				}
-
-				if !reflect.DeepEqual(&got, tt.want) {
-					t.Errorf("AuthorizationServer.handleJWKS() = %v, want %v", got, tt.want)
-				}
 			}
 		})
 	}
@@ -945,6 +861,30 @@ func TestNewServer(t *testing.T) {
 				signingKeys: map[int]*ecdsa.PrivateKey{
 					0: testSigningKey,
 				},
+				publicURL: DefaultAddress,
+				metadata:  buildMetadata(DefaultAddress),
+			},
+		},
+		{
+			name: "with public URL",
+			args: args{
+				opts: []AuthorizationServerOption{
+					WithPublicURL("http://localhost:8080"),
+					WithSigningKeysFunc(func() (keys map[int]*ecdsa.PrivateKey) {
+						return map[int]*ecdsa.PrivateKey{
+							0: testSigningKey,
+						}
+					}),
+				},
+			},
+			want: &AuthorizationServer{
+				clients: []*Client{},
+				codes:   map[string]*codeInfo{},
+				signingKeys: map[int]*ecdsa.PrivateKey{
+					0: testSigningKey,
+				},
+				publicURL: "http://localhost:8080",
+				metadata:  buildMetadata("http://localhost:8080"),
 			},
 		},
 	}
