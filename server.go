@@ -30,6 +30,7 @@ const (
 	ErrorInvalidGrant   = "invalid_grant"
 
 	DefaultExpireIn = time.Hour * 24
+	DefaultAddress  = "http://localhost:8000"
 )
 
 type codeInfo struct {
@@ -41,17 +42,25 @@ type codeInfo struct {
 type AuthorizationServer struct {
 	http.Server
 
-	// our clients
+	// clients contains our clients
 	clients []*Client
 
-	// our signing keys
+	// signingKeys contains our signing keys
 	signingKeys map[int]*ecdsa.PrivateKey
 
-	// our codes and their expiry time and challenge
+	// codes contains our codes and their expiry time and challenge
 	codes map[string]*codeInfo
 
-	// the allowed CORS origin
+	// allowedOrigin is the allowed CORS origin
 	allowedOrigin string
+
+	// publicURL is the public facing address of this server. This is used to
+	// populate its metadata.
+	publicURL string
+
+	// metadata contains server metadata according to RFC 8414. This is
+	// populated automatically.
+	metadata *ServerMetadata
 }
 
 type AuthorizationServerOption func(srv *AuthorizationServer)
@@ -74,6 +83,12 @@ func WithClient(
 			ClientSecret: clientSecret,
 			RedirectURI:  redirectURI,
 		})
+	}
+}
+
+func WithPublicURL(publicURL string) AuthorizationServerOption {
+	return func(srv *AuthorizationServer) {
+		srv.publicURL = publicURL
 	}
 }
 
@@ -105,12 +120,20 @@ func NewServer(addr string, opts ...AuthorizationServerOption) *AuthorizationSer
 		o(srv)
 	}
 
+	// Build metadata
+	if srv.publicURL == "" {
+		srv.publicURL = DefaultAddress
+	}
+	srv.metadata = buildMetadata(srv.publicURL)
+
 	if srv.signingKeys == nil {
 		srv.signingKeys = generateSigningKeys()
 	}
 
 	mux.HandleFunc("/token", srv.handleToken)
-	mux.HandleFunc("/.well-known/jwks.json", srv.handleJWKS)
+	mux.HandleFunc("/certs", srv.handleJWKS)
+	mux.HandleFunc("/.well-known/oauth-authorization-server", srv.handleMetadata)
+	mux.HandleFunc("/.well-known/openid-configuration", srv.handleMetadata)
 
 	return srv
 }
@@ -282,33 +305,6 @@ issue:
 	}
 
 	writeToken(w, token)
-}
-
-func (srv *AuthorizationServer) handleJWKS(w http.ResponseWriter, r *http.Request) {
-	var (
-		keySet *JSONWebKeySet
-	)
-
-	if r.Method != "GET" {
-		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
-		return
-	}
-
-	keySet = &JSONWebKeySet{Keys: []JSONWebKey{}}
-
-	for kid, key := range srv.PublicKeys() {
-		keySet.Keys = append(keySet.Keys,
-			JSONWebKey{
-				// Currently, our kid is simply a 0-based index value of our signing keys array
-				Kid: fmt.Sprintf("%d", kid),
-				Crv: key.Params().Name,
-				Kty: "EC",
-				X:   base64.RawURLEncoding.EncodeToString(key.X.Bytes()),
-				Y:   base64.RawURLEncoding.EncodeToString(key.Y.Bytes()),
-			})
-	}
-
-	writeJSON(w, keySet)
 }
 
 // GetClient returns the client for the given ID or ErrClientNotFound.

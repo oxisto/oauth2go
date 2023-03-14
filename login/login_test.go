@@ -49,7 +49,7 @@ func Test_handler_doLoginGet(t *testing.T) {
 			},
 			args: args{
 				r: &http.Request{
-					URL: &url.URL{Host: "localhost:8080", Path: "/login", RawQuery: "failed"},
+					URL: &url.URL{Host: "localhost:8000", Path: "/login", RawQuery: "failed"},
 				},
 			},
 			wantCode: http.StatusOK,
@@ -64,7 +64,7 @@ func Test_handler_doLoginGet(t *testing.T) {
 			},
 			args: args{
 				r: &http.Request{
-					URL: &url.URL{Host: "localhost:8080"},
+					URL: &url.URL{Host: "localhost:8000"},
 				},
 			},
 			wantCode: http.StatusOK,
@@ -82,7 +82,7 @@ func Test_handler_doLoginGet(t *testing.T) {
 					Header: http.Header{
 						"Cookie": []string{"id=mySession"},
 					},
-					URL: &url.URL{Host: "localhost:8080"},
+					URL: &url.URL{Host: "localhost:8000"},
 				},
 			},
 			wantCode: http.StatusOK,
@@ -108,7 +108,7 @@ func Test_handler_doLoginGet(t *testing.T) {
 					Header: http.Header{
 						"Cookie": []string{"id=mySession"},
 					},
-					URL: &url.URL{Host: "localhost:8080"},
+					URL: &url.URL{Host: "localhost:8000"},
 				},
 			},
 			wantCode: http.StatusOK,
@@ -134,7 +134,7 @@ func Test_handler_doLoginGet(t *testing.T) {
 					Header: http.Header{
 						"Cookie": []string{"id=mySession"},
 					},
-					URL: &url.URL{Host: "localhost:8080"},
+					URL: &url.URL{Host: "localhost:8000"},
 				},
 			},
 			wantCode: http.StatusFound,

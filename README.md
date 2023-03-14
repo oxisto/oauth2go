@@ -35,7 +35,7 @@ import (
 func main() {
     var srv *oauth2.AuthorizationServer
 
-    srv = oauth2.NewServer(":8080",
+    srv = oauth2.NewServer(":8000",
         login.WithLoginPage(login.WithUser("admin", "admin")),
     )
 
@@ -46,10 +46,10 @@ func main() {
 If you want to use this project as a small standalone authentication server, you can use the Docker image to spawn one. The created user and client credentials will be printed on the console.
 
 ```
-docker run -p 8080:8080 ghcr.io/oxisto/oauth2go
+docker run -p 8000:8000 ghcr.io/oxisto/oauth2go
 ```
 
-A login form is available on http://localhost:8008/login.
+A login form is available on http://localhost:8000/login.
 
 
 ## (To be) Implemented Standards
@@ -58,3 +58,4 @@ A login form is available on http://localhost:8008/login.
 * [RFC 6750](https://datatracker.ietf.org/doc/html/rfc6750). The OAuth 2.0 Authorization Framework: Bearer Token Usage
 * [RFC 7517](https://datatracker.ietf.org/doc/html/rfc7517). JSON Web Key (JWK)
 * [RFC 7636](https://datatracker.ietf.org/doc/html/rfc7636). Proof Key for Code Exchange by OAuth Public Clients
+* [RFC 8414](https://datatracker.ietf.org/doc/html/rfc8414). OAuth 2.0 Authorization Server Metadata 
