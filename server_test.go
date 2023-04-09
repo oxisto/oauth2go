@@ -10,6 +10,7 @@ import (
 	"math/big"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"reflect"
 	"strings"
 	"testing"
@@ -46,7 +47,7 @@ var testChallenge = GenerateCodeChallenge(testVerifier)
 // testRefreshTokenClientKID1MockSingingKey is a valid refresh token signed by mockSigningKey with the KID 1
 var testRefreshTokenClientKID1MockSingingKey string
 
-func init() {
+func TestMain(m *testing.M) {
 	var (
 		err error
 		t   *jwt.Token
@@ -66,6 +67,8 @@ func init() {
 	if err != nil {
 		panic(err)
 	}
+
+	os.Exit(m.Run())
 }
 
 func TestAuthorizationServer_handleToken(t *testing.T) {

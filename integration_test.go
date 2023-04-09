@@ -47,7 +47,7 @@ func TestIntegration(t *testing.T) {
 	jwtoken, err := jwt.ParseWithClaims(token.AccessToken, &jwt.RegisteredClaims{}, func(t *jwt.Token) (interface{}, error) {
 		kid, _ := strconv.ParseInt(t.Header["kid"].(string), 10, 64)
 
-		return srv.PublicKeys()[kid], nil
+		return srv.PublicKeys()[int(kid)], nil
 	})
 	if err != nil {
 		t.Errorf("Error while retrieving a token: %v", err)

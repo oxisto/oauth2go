@@ -138,12 +138,13 @@ func NewServer(addr string, opts ...AuthorizationServerOption) *AuthorizationSer
 	return srv
 }
 
-// PublicKey returns the public keys of the signing key of this authorization server.
-func (srv *AuthorizationServer) PublicKeys() []*ecdsa.PublicKey {
-	var keys = []*ecdsa.PublicKey{}
+// PublicKey returns the public keys of the signing key of this authorization
+// server in a map, indexed by its kid.
+func (srv *AuthorizationServer) PublicKeys() map[int]*ecdsa.PublicKey {
+	var keys = make(map[int]*ecdsa.PublicKey, len(srv.signingKeys))
 
-	for _, k := range srv.signingKeys {
-		keys = append(keys, &k.PublicKey)
+	for kid, key := range srv.signingKeys {
+		keys[kid] = &key.PublicKey
 	}
 
 	return keys
@@ -266,7 +267,7 @@ func (srv *AuthorizationServer) doRefreshTokenFlow(w http.ResponseWriter, r *htt
 	_, err = jwt.ParseWithClaims(refreshToken, &claims, func(t *jwt.Token) (interface{}, error) {
 		kid, _ := strconv.ParseInt(t.Header["kid"].(string), 10, 64)
 
-		return srv.PublicKeys()[kid], nil
+		return srv.PublicKeys()[int(kid)], nil
 	})
 	if err != nil {
 		fmt.Printf("%+v", err)
