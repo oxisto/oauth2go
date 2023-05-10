@@ -6,7 +6,7 @@ require (
 	github.com/golang-jwt/jwt/v5 v5.0.0
 	golang.org/x/crypto v0.9.0
 	golang.org/x/net v0.10.0
-	golang.org/x/oauth2 v0.7.0
+	golang.org/x/oauth2 v0.8.0
 )
 
 require (
