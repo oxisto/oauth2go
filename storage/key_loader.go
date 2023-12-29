@@ -10,6 +10,8 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+
+	"github.com/oxisto/oauth2go/pkcs"
 )
 
 type keyLoader struct {
@@ -17,6 +19,8 @@ type keyLoader struct {
 	password     string
 	saveOnCreate bool
 }
+
+var ErrNotECPrivateKey = errors.New("key is not a valid EC private key")
 
 // LoadSigningKeys implements a singing keys func for our internal authorization
 // server. Please note that [path] already needs to be an expanded path, e.g.,
@@ -98,7 +102,7 @@ func loadKeyFromFile(path string, password []byte) (key *ecdsa.PrivateKey, err e
 		return nil, fmt.Errorf("error while reading key: %w", err)
 	}
 
-	k, err = ParsePKCS8PrivateKeyWithPassword(data, password)
+	k, err = pkcs.ParsePKCS5PrivateKeyWithPassword(data, password)
 	if err != nil {
 		return nil, fmt.Errorf("error while parsing private key: %w", err)
 	}
@@ -114,7 +118,7 @@ func loadKeyFromFile(path string, password []byte) (key *ecdsa.PrivateKey, err e
 // saveKeyToFile saves an [crypto.PrivateKey] to a path. The key will be saved
 // in PEM format and protected by a password using PKCS#8 with PBES2.
 func saveKeyToFile(key crypto.PrivateKey, path string, password string) (err error) {
-	data, err := MarshalPKCS8PrivateKeyWithPassword(key, []byte(password))
+	data, err := pkcs.MarshalPKCS5PrivateKeyWithPassword(key, []byte(password))
 	if err != nil {
 		return fmt.Errorf("error while marshalling private key: %w", err)
 	}
@@ -127,7 +131,7 @@ func saveKeyToFile(key crypto.PrivateKey, path string, password string) (err err
 	return nil
 }
 
-// ensureConfigesFolderExistence ensures that the config folder exists.
+// ensureFolderExistence ensures that the folder exists.
 func ensureFolderExistence(path string) (err error) {
 	// Create the directory, if it not exists
 	_, err = os.Stat(path)

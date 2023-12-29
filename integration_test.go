@@ -2,6 +2,7 @@ package oauth2_test
 
 import (
 	"context"
+	"crypto/ecdsa"
 	"fmt"
 	"log"
 	"net"
@@ -12,15 +13,23 @@ import (
 	"testing"
 	"time"
 
-	"github.com/golang-jwt/jwt/v5"
 	oauth2 "github.com/oxisto/oauth2go"
 	"github.com/oxisto/oauth2go/login"
+	"github.com/oxisto/oauth2go/storage"
+
+	"github.com/golang-jwt/jwt/v5"
 	"golang.org/x/net/html"
 	"golang.org/x/oauth2/clientcredentials"
 )
 
 func TestIntegration(t *testing.T) {
-	srv := oauth2.NewServer(":0", oauth2.WithClient("client", "secret", ""))
+	srv := oauth2.NewServer(
+		":0",
+		oauth2.WithClient("client", "secret", ""),
+		oauth2.WithSigningKeysFunc(func() map[int]*ecdsa.PrivateKey {
+			return storage.LoadSigningKeys("storage/testdata/ecdsa.pem", "changeme", false)
+		}),
+	)
 	ln, err := net.Listen("tcp", srv.Addr)
 	if err != nil {
 		t.Errorf("Error while listening key: %v", err)

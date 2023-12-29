@@ -1,4 +1,4 @@
-package storage
+package pkcs
 
 import (
 	"crypto"
@@ -7,6 +7,7 @@ import (
 	"crypto/rand"
 	"crypto/sha256"
 	"crypto/x509"
+	"crypto/x509/pkix"
 	"encoding/asn1"
 	"encoding/pem"
 	"errors"
@@ -17,20 +18,20 @@ import (
 )
 
 var (
-	oidAESCBC         = asn1.ObjectIdentifier{1, 2, 840, 113549, 1, 5, 16, 12}
-	oidHMACWithSHA256 = asn1.ObjectIdentifier{1, 2, 840, 113549, 1, 5, 9}
+	oidAES128CBC      = asn1.ObjectIdentifier{2, 16, 840, 1, 101, 3, 4, 1, 2}
+	oidHMACWithSHA256 = asn1.ObjectIdentifier{1, 2, 840, 113549, 2, 9}
 	oidPBKDF2         = asn1.ObjectIdentifier{1, 2, 840, 113549, 1, 5, 12}
 	oidPBES2          = asn1.ObjectIdentifier{1, 2, 840, 113549, 1, 5, 13}
 )
 
-var ErrNotECPrivateKey = errors.New("key is not a valid EC private key")
+const DefaultIterations = 10000
 
 // PBKDF2Params are parameters for PBKDF2. See
 // https://datatracker.ietf.org/doc/html/rfc8018#appendix-A.2.
 type PBKDF2Params struct {
 	Salt           []byte
 	IterationCount int
-	PRF            asn1.ObjectIdentifier `asn1:"optional"`
+	PRF            pkix.AlgorithmIdentifier `asn1:"optional"`
 }
 
 // KeyDerivationFunc is part of PBES2 and specify the key derivation function.
@@ -68,9 +69,9 @@ type EncryptedPrivateKeyInfo struct {
 	EncryptedData       []byte
 }
 
-// MarshalPKCS8PrivateKeyWithPassword marshals an private key protected with a
-// password according to PKCS#8 into a byte array
-func MarshalPKCS8PrivateKeyWithPassword(key crypto.PrivateKey, password []byte) (data []byte, err error) {
+// MarshalPKCS5PrivateKeyWithPassword marshals an private key protected with a
+// password according to PKCS#5 into a byte array
+func MarshalPKCS5PrivateKeyWithPassword(key crypto.PrivateKey, password []byte) (data []byte, err error) {
 	var decrypted []byte
 	decrypted, err = x509.MarshalPKCS8PrivateKey(key)
 	if err != nil {
@@ -87,9 +88,9 @@ func MarshalPKCS8PrivateKeyWithPassword(key crypto.PrivateKey, password []byte) 
 	return pem.EncodeToMemory(block), nil
 }
 
-// ParsePKCS8PrivateKeyWithPassword reads a private key protected with a
-// password according to PKCS#8 from a byte array.
-func ParsePKCS8PrivateKeyWithPassword(data []byte, password []byte) (key crypto.PrivateKey, err error) {
+// ParsePKCS5PrivateKeyWithPassword reads a private key protected with a
+// password according to PKCS#5 from a byte array.
+func ParsePKCS5PrivateKeyWithPassword(data []byte, password []byte) (key crypto.PrivateKey, err error) {
 	// Parse PEM block
 	var block *pem.Block
 	if block, _ = pem.Decode(data); block == nil {
@@ -143,13 +144,15 @@ func EncryptPEMBlock(rand io.Reader, data, password []byte) (block *pem.Block, e
 				KeyDerivationFunc: KeyDerivationFunc{
 					Algorithm: oidPBKDF2,
 					PBKDF2Params: PBKDF2Params{
-						IterationCount: 1000,
+						IterationCount: DefaultIterations,
 						Salt:           salt,
-						PRF:            oidHMACWithSHA256,
+						PRF: pkix.AlgorithmIdentifier{
+							Algorithm: oidHMACWithSHA256,
+						},
 					},
 				},
 				EncryptionScheme: EncryptionScheme{
-					EncryptionAlgorithm: oidAESCBC,
+					EncryptionAlgorithm: oidAES128CBC,
 					IV:                  iv,
 				},
 			},
@@ -162,7 +165,7 @@ func EncryptPEMBlock(rand io.Reader, data, password []byte) (block *pem.Block, e
 		password,
 		salt,
 		keyInfo.EncryptionAlgorithm.Params.KeyDerivationFunc.PBKDF2Params.IterationCount,
-		32,
+		16,
 		sha256.New,
 	)
 
@@ -199,7 +202,7 @@ func EncryptPEMBlock(rand io.Reader, data, password []byte) (block *pem.Block, e
 func DecryptPEMBlock(block *pem.Block, password []byte) ([]byte, error) {
 	var (
 		keyInfo EncryptedPrivateKeyInfo
-		prf     asn1.ObjectIdentifier
+		prf     pkix.AlgorithmIdentifier
 		err     error
 	)
 
@@ -221,15 +224,14 @@ func DecryptPEMBlock(block *pem.Block, password []byte) ([]byte, error) {
 	}
 
 	prf = keyInfo.EncryptionAlgorithm.Params.KeyDerivationFunc.PBKDF2Params.PRF
-
-	if prf != nil && !prf.Equal(oidHMACWithSHA256) {
+	if prf.Algorithm != nil && !prf.Algorithm.Equal(oidHMACWithSHA256) {
 		return nil, errors.New("unsupported pseudo-random function: only HMACWithSHA256 is supported")
 	}
 
 	keyParams := keyInfo.EncryptionAlgorithm.Params.KeyDerivationFunc.PBKDF2Params
 	keyHash := sha256.New
 
-	symkey := pbkdf2.Key(password, keyParams.Salt, keyParams.IterationCount, 32, keyHash)
+	symkey := pbkdf2.Key(password, keyParams.Salt, keyParams.IterationCount, 16, keyHash)
 
 	// We can safely ignore the errors here, because the only error which can
 	// occur in aes.NewCipher is an invalid key size and the above line makes

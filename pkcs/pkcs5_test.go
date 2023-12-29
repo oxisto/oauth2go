@@ -1,4 +1,4 @@
-package storage
+package pkcs
 
 import (
 	"bytes"
@@ -6,6 +6,7 @@ import (
 	"crypto/ecdsa"
 	"crypto/elliptic"
 	"crypto/rand"
+	"crypto/x509/pkix"
 	"encoding/asn1"
 	"encoding/pem"
 	"io"
@@ -30,13 +31,13 @@ func TestParsePKCS8PrivateKeyWithPassword(t *testing.T) {
 			args: args{
 				data: []byte(
 					`-----BEGIN ENCRYPTED PRIVATE KEY-----
-MIHsMFcGCSqGSIb3DQEFDTBKMCkGCSqGSIb3DQEFDDAcBAgTz/KWaEQ7xwICCAAw
-DAYIKoZIhvcNAgkFADAdBglghkgBZQMEASoEEEoMbQeGZBq+RJGRyY2N8PwEgZAY
-U36vBRn5HB8zNSic75MfpGXWRVXki1qm29G/DU+E68hksvfbJlqqpL12fQ5mbOz0
-v8wNrNmehUyxEOQZlRPRdmgJJHObuOZ3Z49iWRJh26uvQLRYj0EdV9KkEKmSzxaF
-1ZEAdLc369AgQGD33Ce9WGTtnROB6IIfFZULO5/wj/Ps32+T+jzZLIoGk+M/sng=
+MIHqMFUGCSqGSIb3DQEFDTBIMCcGCSqGSIb3DQEFDDAaBAg/ry1F70gEOwICJxAw
+CgYIKoZIhvcNAgkwHQYJYIZIAWUDBAECBBAssuVSH48KsMJ6RPl/mG9qBIGQii4G
+54TH7t/WrIHgE9xB82RojLdQ8b2WAvjWFepY4RsunHNnDcljEKyFySnqe4f57cRy
+3lfGKes6U5ubV5Bi/ffsb5/fApUD93GfIrHSW4yxb4oUKOa30ODwPbwx10sji8Vk
+zpW8KFxMcSEgVROGQJFAKVHwbA8dOlOPmewQuh2DXiRqYucncbvxey1flMln
 -----END ENCRYPTED PRIVATE KEY-----`),
-				password: []byte("test"),
+				password: []byte("changeme"),
 			},
 			wantErr: false,
 			wantKey: func(tt *testing.T, got crypto.PrivateKey) {
@@ -50,11 +51,11 @@ v8wNrNmehUyxEOQZlRPRdmgJJHObuOZ3Z49iWRJh26uvQLRYj0EdV9KkEKmSzxaF
 			args: args{
 				data: []byte(
 					`-----BEGIN ENCRYPTED PRIVATE KEY-----
-MIHsMFcGCSqGSIb3DQEFDTBKMCkGCSqGSIb3DQEFDDAcBAgTz/KWaEQ7xwICCAAw
-DAYIKoZIhvcNAgkFADAdBglghkgBZQMEASoEEEoMbQeGZBq+RJGRyY2N8PwEgZAY
-U36vBRn5HB8zNSic75MfpGXWRVXki1qm29G/DU+E68hksvfbJlqqpL12fQ5mbOz0
-v8wNrNmehUyxEOQZlRPRdmgJJHObuOZ3Z49iWRJh26uvQLRYj0EdV9KkEKmSzxaF
-1ZEAdLc369AgQGD33Ce9WGTtnROB6IIfFZULO5/wj/Ps32+T+jzZLIoGk+M/sng=
+MIHqMFUGCSqGSIb3DQEFDTBIMCcGCSqGSIb3DQEFDDAaBAg/ry1F70gEOwICJxAw
+CgYIKoZIhvcNAgkwHQYJYIZIAWUDBAECBBAssuVSH48KsMJ6RPl/mG9qBIGQii4G
+54TH7t/WrIHgE9xB82RojLdQ8b2WAvjWFepY4RsunHNnDcljEKyFySnqe4f57cRy
+3lfGKes6U5ubV5Bi/ffsb5/fApUD93GfIrHSW4yxb4oUKOa30ODwPbwx10sji8Vk
+zpW8KFxMcSEgVROGQJFAKVHwbA8dOlOPmewQuh2DXiRqYucncbvxey1flMln
 -----END ENCRYPTED PRIVATE KEY-----`),
 				password: []byte("nottest"),
 			},
@@ -71,13 +72,22 @@ THIS IS NOT A PRIVATE KEY
 			},
 			wantErr: true,
 		},
+		{
+			name: "not PEM",
+			args: args{
+				data: []byte(
+					`NOTPEM`),
+				password: []byte("test"),
+			},
+			wantErr: true,
+		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			gotKey, err := ParsePKCS8PrivateKeyWithPassword(tt.args.data, tt.args.password)
+			gotKey, err := ParsePKCS5PrivateKeyWithPassword(tt.args.data, tt.args.password)
 			if (err != nil) != tt.wantErr {
-				t.Errorf("ParseECPrivateKeyFromPEMWithPassword() error = %v, wantErr %v", err, tt.wantErr)
+				t.Errorf("ParsePKCS5PrivateKeyWithPassword() error = %v, wantErr %v", err, tt.wantErr)
 				return
 			}
 
@@ -88,7 +98,7 @@ THIS IS NOT A PRIVATE KEY
 	}
 }
 
-func TestMarshalPKCS8PrivateKeyWithPassword(t *testing.T) {
+func TestMarshalPKCS5PrivateKeyWithPassword(t *testing.T) {
 	pk, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
 	if err != nil {
 		t.Fatal(err)
@@ -112,7 +122,7 @@ func TestMarshalPKCS8PrivateKeyWithPassword(t *testing.T) {
 			},
 			wantData: func(tt *testing.T, data []byte) {
 				if len(data) == 0 {
-					tt.Error("MarshalPKCS8PrivateKeyWithPassword() is empty")
+					tt.Error("MarshalPKCS5PrivateKeyWithPassword() is empty")
 				}
 			},
 		},
@@ -137,9 +147,9 @@ func TestMarshalPKCS8PrivateKeyWithPassword(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			gotData, err := MarshalPKCS8PrivateKeyWithPassword(tt.args.key, tt.args.password)
+			gotData, err := MarshalPKCS5PrivateKeyWithPassword(tt.args.key, tt.args.password)
 			if (err != nil) != tt.wantErr {
-				t.Errorf("MarshalPKCS8PrivateKeyWithPassword() error = %v, wantErr %v", err, tt.wantErr)
+				t.Errorf("MarshalPKCS5PrivateKeyWithPassword() error = %v, wantErr %v", err, tt.wantErr)
 				return
 			}
 
@@ -194,7 +204,7 @@ func TestDecryptPEMBlock(t *testing.T) {
 										Algorithm: oidPBKDF2,
 									},
 									EncryptionScheme: EncryptionScheme{
-										EncryptionAlgorithm: oidAESCBC,
+										EncryptionAlgorithm: oidAES128CBC,
 									},
 								},
 							},
@@ -222,7 +232,7 @@ func TestDecryptPEMBlock(t *testing.T) {
 										Algorithm: asn1.ObjectIdentifier{0, 0},
 									},
 									EncryptionScheme: EncryptionScheme{
-										EncryptionAlgorithm: oidAESCBC,
+										EncryptionAlgorithm: oidAES128CBC,
 									},
 								},
 							},
@@ -249,11 +259,13 @@ func TestDecryptPEMBlock(t *testing.T) {
 									KeyDerivationFunc: KeyDerivationFunc{
 										Algorithm: oidPBKDF2,
 										PBKDF2Params: PBKDF2Params{
-											PRF: asn1.ObjectIdentifier{0, 0},
+											PRF: pkix.AlgorithmIdentifier{
+												Algorithm: asn1.ObjectIdentifier{0, 0},
+											},
 										},
 									},
 									EncryptionScheme: EncryptionScheme{
-										EncryptionAlgorithm: oidAESCBC,
+										EncryptionAlgorithm: oidAES128CBC,
 									},
 								},
 							},

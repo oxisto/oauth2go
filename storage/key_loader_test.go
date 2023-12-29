@@ -150,7 +150,7 @@ func Test_keyLoader_LoadKey(t *testing.T) {
 				if pk.X == nil {
 					tt.Fatal("keyLoader.LoadKey(): X is nil")
 				}
-				if pk.X.String() != "32873710959934374119280106587483362391001994064365430366486752885578316099732" {
+				if pk.X.String() != "28234181521930490715768413662959502200866653406621902194676464978939371342802" {
 					tt.Fatal("keyLoader.LoadKey(): X is wrong")
 				}
 			},
@@ -201,7 +201,7 @@ func TestLoadSigningKeys(t *testing.T) {
 				if m[0].X == nil {
 					tt.Fatal("keyLoader.LoadKey(): X is nil")
 				}
-				if m[0].X.String() != "32873710959934374119280106587483362391001994064365430366486752885578316099732" {
+				if m[0].X.String() != "28234181521930490715768413662959502200866653406621902194676464978939371342802" {
 					tt.Fatal("keyLoader.LoadKey(): X is wrong")
 				}
 			},
@@ -265,7 +265,7 @@ func Test_loadKeyFromFile(t *testing.T) {
 			name: "not an ECDSA key",
 			args: args{
 				path:     "testdata/rsa.pem",
-				password: []byte("changeme"),
+				password: []byte("test"),
 			},
 			wantErr: true,
 		},
