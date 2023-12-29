@@ -73,6 +73,38 @@ func Test_keyLoader_recoverFromLoadApiKeyError(t *testing.T) {
 				}
 			},
 		},
+		{
+			name: "error while recovering",
+			fields: fields{
+				saveOnCreate: true,
+				path:         "/youwillnotcreatethis/file",
+				password:     "test",
+			},
+			args: args{
+				err: os.ErrNotExist,
+			},
+			wantKey: func(tt *testing.T, got *ecdsa.PrivateKey) {
+				if got == nil {
+					tt.Error("keyLoader.recoverFromLoadApiKeyError() is nil")
+				}
+			},
+		},
+		{
+			name: "error while recovering",
+			fields: fields{
+				saveOnCreate: true,
+				path:         "/youwillnotcreatethis",
+				password:     "test",
+			},
+			args: args{
+				err: os.ErrNotExist,
+			},
+			wantKey: func(tt *testing.T, got *ecdsa.PrivateKey) {
+				if got == nil {
+					tt.Error("keyLoader.recoverFromLoadApiKeyError() is nil")
+				}
+			},
+		},
 	}
 
 	for _, tt := range tests {
@@ -82,7 +114,7 @@ func Test_keyLoader_recoverFromLoadApiKeyError(t *testing.T) {
 				password:     tt.fields.password,
 				saveOnCreate: tt.fields.saveOnCreate,
 			}
-			gotKey := l.recoverFromLoadApiKeyError(tt.args.err, tt.args.defaultPath)
+			gotKey := l.recoverFromLoadApiKeyError(tt.args.err)
 
 			if tt.wantKey != nil {
 				tt.wantKey(t, gotKey)
@@ -96,6 +128,7 @@ func Test_keyLoader_LoadKey(t *testing.T) {
 		path         string
 		password     string
 		saveOnCreate bool
+		homeDirFunc  func() (string, error)
 	}
 	tests := []struct {
 		name    string
@@ -105,8 +138,9 @@ func Test_keyLoader_LoadKey(t *testing.T) {
 		{
 			name: "happy path",
 			fields: fields{
-				path:     "test.key",
-				password: "changeme",
+				path:        "./test.key",
+				password:    "changeme",
+				homeDirFunc: os.UserHomeDir,
 			},
 			wantKey: func(tt *testing.T, pk *ecdsa.PrivateKey) {
 				if pk == nil {
@@ -122,6 +156,9 @@ func Test_keyLoader_LoadKey(t *testing.T) {
 		},
 		{
 			name: "recovered path",
+			fields: fields{
+				homeDirFunc: os.UserHomeDir,
+			},
 			wantKey: func(tt *testing.T, pk *ecdsa.PrivateKey) {
 				if pk == nil {
 					tt.Error("keyLoader.LoadKey() is nil")
@@ -174,6 +211,33 @@ func TestLoadSigningKeys(t *testing.T) {
 			got := LoadSigningKeys(tt.args.path, tt.args.password, tt.args.saveOnCreate)
 
 			tt.want(t, got)
+		})
+	}
+}
+
+func Test_keyLoader_ensureFolderExistence(t *testing.T) {
+	type args struct {
+		path string
+	}
+	tests := []struct {
+		name    string
+		args    args
+		wantErr bool
+	}{
+		{
+			name: "mkdir fail",
+			args: args{
+				path: "/thisshouldnotwork/file",
+			},
+			wantErr: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if err := ensureFolderExistence(tt.args.path); (err != nil) != tt.wantErr {
+				t.Errorf("keyLoader.ensureFolderExistence() error = %v, wantErr %v", err, tt.wantErr)
+			}
 		})
 	}
 }
