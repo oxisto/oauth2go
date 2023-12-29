@@ -1,9 +1,9 @@
 package storage
 
 import (
+	"crypto"
 	"crypto/aes"
 	"crypto/cipher"
-	"crypto/ecdsa"
 	"crypto/rand"
 	"crypto/sha256"
 	"crypto/x509"
@@ -68,9 +68,9 @@ type EncryptedPrivateKeyInfo struct {
 	EncryptedData       []byte
 }
 
-// MarshalECPrivateKeyWithPassword marshals an ECDSA private key protected with
-// a password according to PKCS#8 into a byte array
-func MarshalECPrivateKeyWithPassword(key *ecdsa.PrivateKey, password []byte) (data []byte, err error) {
+// MarshalPKCS8PrivateKeyWithPassword marshals an private key protected with a
+// password according to PKCS#8 into a byte array
+func MarshalPKCS8PrivateKeyWithPassword(key crypto.PrivateKey, password []byte) (data []byte, err error) {
 	var decrypted []byte
 	decrypted, err = x509.MarshalPKCS8PrivateKey(key)
 	if err != nil {
@@ -87,9 +87,9 @@ func MarshalECPrivateKeyWithPassword(key *ecdsa.PrivateKey, password []byte) (da
 	return pem.EncodeToMemory(block), nil
 }
 
-// ParseECPrivateKeyFromPEMWithPassword ready an ECDSA private key protected
-// with a password according to PKCS#8 from a byte array.
-func ParseECPrivateKeyFromPEMWithPassword(data []byte, password []byte) (key *ecdsa.PrivateKey, err error) {
+// ParsePKCS8PrivateKeyWithPassword reads a private key protected with a
+// password according to PKCS#8 from a byte array.
+func ParsePKCS8PrivateKeyWithPassword(data []byte, password []byte) (key crypto.PrivateKey, err error) {
 	// Parse PEM block
 	var block *pem.Block
 	if block, _ = pem.Decode(data); block == nil {
@@ -106,19 +106,23 @@ func ParseECPrivateKeyFromPEMWithPassword(data []byte, password []byte) (key *ec
 		// Directly return error here, because we are basically a wrapper around
 		// x509.ParsePKCS8PrivateKey and we want our errors to be similar
 		return nil, err
+	} else {
+		// For backwards compatiblity ParsePKCS8PrivateKey does not return a
+		// crypto.PrivateKey, but "any". However, we can just cast this, since
+		// crypto.PrivateKey's underlying type is "any".
+		return (crypto.PrivateKey)(parsedKey), nil
 	}
-
-	var ok bool
-	if key, ok = parsedKey.(*ecdsa.PrivateKey); !ok {
-		return nil, ErrNotECPrivateKey
-	}
-
-	return
 }
 
 // EncryptPEMBlock encrypts a private key contained in data into a PEM block
 // according to PKCS#8.
 func EncryptPEMBlock(rand io.Reader, data, password []byte) (block *pem.Block, err error) {
+	// Although we do not do an extended check on the password, we want to
+	// enforce "any" kind of password, so it should at least not be empty.
+	if len(password) == 0 {
+		return nil, errors.New("empty password")
+	}
+
 	var salt = make([]byte, 8)
 	if _, err = rand.Read(salt); err != nil {
 		return nil, fmt.Errorf("error creating salt: %w", err)
@@ -190,8 +194,8 @@ func EncryptPEMBlock(rand io.Reader, data, password []byte) (block *pem.Block, e
 	return
 }
 
-// DecryptPEMBlock is a drop-in replacement for x509.DecryptPEMBlock which only
-// supports state-of-the art algorithms such as PBES2.
+// DecryptPEMBlock is a drop-in replacement for [x509.DecryptPEMBlock], which
+// only supports state-of-the art algorithms such as PBES2.
 func DecryptPEMBlock(block *pem.Block, password []byte) ([]byte, error) {
 	var (
 		keyInfo EncryptedPrivateKeyInfo

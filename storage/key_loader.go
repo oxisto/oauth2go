@@ -1,6 +1,7 @@
 package storage
 
 import (
+	"crypto"
 	"crypto/ecdsa"
 	"crypto/elliptic"
 	"crypto/rand"
@@ -41,15 +42,15 @@ func (l *keyLoader) LoadKey() (key *ecdsa.PrivateKey) {
 	// Try to load the key from the given path
 	key, err = loadKeyFromFile(l.path, []byte(l.password))
 	if err != nil {
-		key = l.recoverFromLoadApiKeyError(err)
+		key = l.recoverFromLoadKeyError(err)
 	}
 
 	return
 }
 
-// recoverFromLoadApiKeyError tries to recover from an error during key loading.
-func (l *keyLoader) recoverFromLoadApiKeyError(err error) (key *ecdsa.PrivateKey) {
-	// In any case, create a new temporary API key
+// recoverFromLoadKeyError tries to recover from an error during key loading.
+func (l *keyLoader) recoverFromLoadKeyError(err error) (key *ecdsa.PrivateKey) {
+	// In any case, create a new temporary private key
 	key, _ = ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
 
 	if errors.Is(err, os.ErrNotExist) && l.saveOnCreate {
@@ -79,10 +80,17 @@ func (l *keyLoader) recoverFromLoadApiKeyError(err error) (key *ecdsa.PrivateKey
 
 // loadKeyFromFile loads an ecdsa.PrivateKey from a path. The key must in PEM
 // format and protected by a password using PKCS#8 with PBES2.
+//
+// Note: This only supports ECDSA keys (for now) since we only support ECDSA
+// keys in the authorization server (a limitation in the JWKS implementation).
+// However, the underyling functions such as [ParsePKCS8PrivateKeyWithPassword]
+// support all kind of private keys, so we might also support all private keys
+// in the future here.
 func loadKeyFromFile(path string, password []byte) (key *ecdsa.PrivateKey, err error) {
-	if _, err = os.Stat(path); os.IsNotExist(err) {
-		return nil, fmt.Errorf("file does not exist (yet): %w", err)
-	}
+	var (
+		k  crypto.PrivateKey
+		ok bool
+	)
 
 	// Check, if we already have a persisted private key
 	data, err := os.ReadFile(path)
@@ -90,32 +98,28 @@ func loadKeyFromFile(path string, password []byte) (key *ecdsa.PrivateKey, err e
 		return nil, fmt.Errorf("error while reading key: %w", err)
 	}
 
-	key, err = ParseECPrivateKeyFromPEMWithPassword(data, password)
+	k, err = ParsePKCS8PrivateKeyWithPassword(data, password)
 	if err != nil {
 		return nil, fmt.Errorf("error while parsing private key: %w", err)
+	}
+
+	key, ok = k.(*ecdsa.PrivateKey)
+	if !ok {
+		return nil, ErrNotECPrivateKey
 	}
 
 	return key, nil
 }
 
-// saveKeyToFile saves an ecdsa.PrivateKey to a path. The key will be saved in
-// PEM format and protected by a password using PKCS#8 with PBES2.
-func saveKeyToFile(apiKey *ecdsa.PrivateKey, keyPath string, password string) (err error) {
-	// Check, if we already have a persisted API key
-	f, err := os.OpenFile(keyPath, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, 0600)
-	if err != nil {
-		return fmt.Errorf("error while opening the file: %w", err)
-	}
-	defer func() {
-		_ = f.Close()
-	}()
-
-	data, err := MarshalECPrivateKeyWithPassword(apiKey, []byte(password))
+// saveKeyToFile saves an [crypto.PrivateKey] to a path. The key will be saved
+// in PEM format and protected by a password using PKCS#8 with PBES2.
+func saveKeyToFile(key crypto.PrivateKey, path string, password string) (err error) {
+	data, err := MarshalPKCS8PrivateKeyWithPassword(key, []byte(password))
 	if err != nil {
 		return fmt.Errorf("error while marshalling private key: %w", err)
 	}
 
-	_, err = f.Write(data)
+	err = os.WriteFile(path, data, 0600)
 	if err != nil {
 		return fmt.Errorf("error while writing file content: %w", err)
 	}

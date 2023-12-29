@@ -2,6 +2,7 @@ package storage
 
 import (
 	"bytes"
+	"crypto"
 	"crypto/ecdsa"
 	"crypto/elliptic"
 	"crypto/rand"
@@ -13,7 +14,7 @@ import (
 	"testing/iotest"
 )
 
-func TestParseECPrivateKeyFromPEMWithPassword(t *testing.T) {
+func TestParsePKCS8PrivateKeyWithPassword(t *testing.T) {
 	type args struct {
 		data     []byte
 		password []byte
@@ -21,11 +22,11 @@ func TestParseECPrivateKeyFromPEMWithPassword(t *testing.T) {
 	tests := []struct {
 		name    string
 		args    args
-		wantKey func(*testing.T, *ecdsa.PrivateKey)
+		wantKey func(*testing.T, crypto.PrivateKey)
 		wantErr bool
 	}{
 		{
-			name: "Private key with password",
+			name: "private key with password",
 			args: args{
 				data: []byte(
 					`-----BEGIN ENCRYPTED PRIVATE KEY-----
@@ -38,14 +39,14 @@ v8wNrNmehUyxEOQZlRPRdmgJJHObuOZ3Z49iWRJh26uvQLRYj0EdV9KkEKmSzxaF
 				password: []byte("test"),
 			},
 			wantErr: false,
-			wantKey: func(tt *testing.T, got *ecdsa.PrivateKey) {
+			wantKey: func(tt *testing.T, got crypto.PrivateKey) {
 				if got == nil {
 					tt.Error("ParseECPrivateKeyFromPEMWithPassword() is nil")
 				}
 			},
 		},
 		{
-			name: "Private key wrong password",
+			name: "private key wrong password",
 			args: args{
 				data: []byte(
 					`-----BEGIN ENCRYPTED PRIVATE KEY-----
@@ -59,11 +60,22 @@ v8wNrNmehUyxEOQZlRPRdmgJJHObuOZ3Z49iWRJh26uvQLRYj0EdV9KkEKmSzxaF
 			},
 			wantErr: true,
 		},
+		{
+			name: "not a private key",
+			args: args{
+				data: []byte(
+					`-----BEGIN ENCRYPTED PRIVATE KEY-----
+THIS IS NOT A PRIVATE KEY
+-----END ENCRYPTED PRIVATE KEY-----`),
+				password: []byte("test"),
+			},
+			wantErr: true,
+		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			gotKey, err := ParseECPrivateKeyFromPEMWithPassword(tt.args.data, tt.args.password)
+			gotKey, err := ParsePKCS8PrivateKeyWithPassword(tt.args.data, tt.args.password)
 			if (err != nil) != tt.wantErr {
 				t.Errorf("ParseECPrivateKeyFromPEMWithPassword() error = %v, wantErr %v", err, tt.wantErr)
 				return
@@ -76,7 +88,7 @@ v8wNrNmehUyxEOQZlRPRdmgJJHObuOZ3Z49iWRJh26uvQLRYj0EdV9KkEKmSzxaF
 	}
 }
 
-func TestMarshalECPrivateKeyWithPassword(t *testing.T) {
+func TestMarshalPKCS8PrivateKeyWithPassword(t *testing.T) {
 	pk, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
 	if err != nil {
 		t.Fatal(err)
@@ -100,7 +112,7 @@ func TestMarshalECPrivateKeyWithPassword(t *testing.T) {
 			},
 			wantData: func(tt *testing.T, data []byte) {
 				if len(data) == 0 {
-					tt.Error("ParseECPrivateKeyFromPEMWithPassword() is empty")
+					tt.Error("MarshalPKCS8PrivateKeyWithPassword() is empty")
 				}
 			},
 		},
@@ -113,12 +125,21 @@ func TestMarshalECPrivateKeyWithPassword(t *testing.T) {
 			wantErr:  true,
 			wantData: nil,
 		},
+		{
+			name: "Empty password",
+			args: args{
+				key:      pk,
+				password: []byte{},
+			},
+			wantErr:  true,
+			wantData: nil,
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			gotData, err := MarshalECPrivateKeyWithPassword(tt.args.key, tt.args.password)
+			gotData, err := MarshalPKCS8PrivateKeyWithPassword(tt.args.key, tt.args.password)
 			if (err != nil) != tt.wantErr {
-				t.Errorf("MarshalECPrivateKeyWithPassword() error = %v, wantErr %v", err, tt.wantErr)
+				t.Errorf("MarshalPKCS8PrivateKeyWithPassword() error = %v, wantErr %v", err, tt.wantErr)
 				return
 			}
 
@@ -280,21 +301,24 @@ func TestEncryptPEMBlock(t *testing.T) {
 		{
 			name: "invalid rand",
 			args: args{
-				rand: iotest.ErrReader(io.EOF),
+				rand:     iotest.ErrReader(io.EOF),
+				password: []byte{1},
 			},
 			wantErr: true,
 		},
 		{
 			name: "invalid rand",
 			args: args{
-				rand: bytes.NewReader(make([]byte, 8)),
+				rand:     bytes.NewReader(make([]byte, 8)),
+				password: []byte{1},
 			},
 			wantErr: true,
 		},
 		{
 			name: "invalid",
 			args: args{
-				rand: bytes.NewReader(make([]byte, 16)),
+				rand:     bytes.NewReader(make([]byte, 16)),
+				password: []byte{1},
 			},
 			wantErr: true,
 		},
