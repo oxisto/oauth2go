@@ -270,7 +270,6 @@ func (srv *AuthorizationServer) doRefreshTokenFlow(w http.ResponseWriter, r *htt
 		return srv.PublicKeys()[int(kid)], nil
 	})
 	if err != nil {
-		fmt.Printf("%+v", err)
 		Error(w, ErrorInvalidGrant, http.StatusBadRequest)
 		return
 	}
