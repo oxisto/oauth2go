@@ -12,6 +12,8 @@ on:
 jobs:
   build:
     runs-on: ubuntu-latest
+    env:
+      CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
     steps:
       - uses: actions/checkout@v2
 
@@ -45,10 +47,13 @@ jobs:
       - name: Test
         run: go test -v -coverprofile=coverage.cov -coverpkg ./... -covermode=atomic ./...
 
-      - uses: codecov/codecov-action@v2.1.0
+      - name: Upload coverage
+        uses: codecov/codecov-action@v5
+        if: ${{ env.CODECOV_TOKEN != '' }}
         with:
           files: coverage.cov
           flags: unittests
+          token: ${{ env.CODECOV_TOKEN }}
 
       - name: Push Release Docker Image
         run: |
