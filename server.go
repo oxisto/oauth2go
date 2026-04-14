@@ -36,6 +36,7 @@ const (
 type codeInfo struct {
 	expiry    time.Time
 	challenge string
+	userID    string
 }
 
 // AuthorizationServer is an OAuth 2.0 authorization server
@@ -61,14 +62,19 @@ type AuthorizationServer struct {
 	// metadata contains server metadata according to RFC 8414. This is
 	// populated automatically.
 	metadata *ServerMetadata
+
+	// tokenClaimsFunc can optionally return custom claims for access tokens.
+	tokenClaimsFunc tokenClaimsFunc
 }
 
 type AuthorizationServerOption func(srv *AuthorizationServer)
 
 type signingKeysFunc func() (keys map[int]*ecdsa.PrivateKey)
 
+type tokenClaimsFunc func(clientID string, userID string) map[string]interface{}
+
 type CodeIssuer interface {
-	IssueCode(challenge string) string
+	IssueCode(challenge string, userID string) string
 	ValidateCode(verifier string, code string) bool
 }
 
@@ -101,6 +107,17 @@ func WithSigningKeysFunc(f signingKeysFunc) AuthorizationServerOption {
 func WithAllowedOrigins(origin string) AuthorizationServerOption {
 	return func(srv *AuthorizationServer) {
 		srv.allowedOrigin = origin
+	}
+}
+
+// WithTokenClaimsFunc sets a callback that can inject custom claims into
+// access tokens. The callback receives clientID and userID.
+//
+// The userID is set for the authorization code flow (when used with the
+// optional login package) and empty for client credentials.
+func WithTokenClaimsFunc(f func(clientID string, userID string) map[string]interface{}) AuthorizationServerOption {
+	return func(srv *AuthorizationServer) {
+		srv.tokenClaimsFunc = f
 	}
 }
 
@@ -194,7 +211,7 @@ func (srv *AuthorizationServer) doClientCredentialsFlow(w http.ResponseWriter, r
 		return
 	}
 
-	token, err = srv.GenerateToken(client.ClientID, 0, -1)
+	token, err = srv.GenerateToken(client.ClientID, "", 0, -1)
 	if err != nil {
 		http.Error(w, "error while creating JWT", http.StatusInternalServerError)
 		return
@@ -210,6 +227,7 @@ func (srv *AuthorizationServer) doAuthorizationCodeFlow(w http.ResponseWriter, r
 		err      error
 		code     string
 		verifier string
+		info     *codeInfo
 		token    *oauth2.Token
 		client   *Client
 	)
@@ -231,12 +249,17 @@ func (srv *AuthorizationServer) doAuthorizationCodeFlow(w http.ResponseWriter, r
 
 	// Retrieve the code
 	code = r.FormValue("code")
-	if !srv.ValidateCode(verifier, code) {
+	info, err = srv.consumeCode(verifier, code)
+	if err != nil {
+		Error(w, ErrorInvalidGrant, http.StatusBadRequest)
+		return
+	}
+	if info.userID == "" {
 		Error(w, ErrorInvalidGrant, http.StatusBadRequest)
 		return
 	}
 
-	token, err = srv.GenerateToken(client.ClientID, 0, 0)
+	token, err = srv.GenerateToken(client.ClientID, info.userID, 0, 0)
 	if err != nil {
 		http.Error(w, "error while creating JWT", http.StatusInternalServerError)
 		return
@@ -251,9 +274,12 @@ func (srv *AuthorizationServer) doRefreshTokenFlow(w http.ResponseWriter, r *htt
 	var (
 		err          error
 		refreshToken string
-		claims       jwt.RegisteredClaims
-		client       *Client
-		token        *Token
+		claims       struct {
+			jwt.RegisteredClaims
+			UserID string `json:"preferred_username,omitempty"`
+		}
+		client *Client
+		token  *Token
 	)
 
 	// Retrieve the token first, as we need it to find out which client this is
@@ -294,7 +320,7 @@ func (srv *AuthorizationServer) doRefreshTokenFlow(w http.ResponseWriter, r *htt
 	}
 
 issue:
-	token, err = srv.GenerateToken(client.ClientID, 0, -1)
+	token, err = srv.GenerateToken(client.ClientID, claims.UserID, 0, -1)
 	if err != nil {
 		http.Error(w, "error while creating JWT", http.StatusInternalServerError)
 		return
@@ -346,13 +372,14 @@ func (srv *AuthorizationServer) retrieveClient(r *http.Request, allowPublic bool
 	return nil, ErrClientNotFound
 }
 
-// IssueCode implements CodeIssuer.
-func (srv *AuthorizationServer) IssueCode(challenge string) (code string) {
+// IssueCode implements CodeIssuer and binds the code to a user.
+func (srv *AuthorizationServer) IssueCode(challenge string, userID string) (code string) {
 	code = GenerateSecret()
 
 	srv.codes[code] = &codeInfo{
 		expiry:    time.Now().Add(10 * time.Minute),
 		challenge: challenge,
+		userID:    userID,
 	}
 
 	return code
@@ -361,6 +388,12 @@ func (srv *AuthorizationServer) IssueCode(challenge string) (code string) {
 // ValidateCode implements CodeIssuer. It checks if the code exists and is
 // not expired. If the code exists, it will be invalidated after this call.
 func (srv *AuthorizationServer) ValidateCode(verifier string, code string) bool {
+	_, err := srv.consumeCode(verifier, code)
+
+	return err == nil
+}
+
+func (srv *AuthorizationServer) consumeCode(verifier string, code string) (*codeInfo, error) {
 	var (
 		ok   bool
 		info *codeInfo
@@ -368,35 +401,42 @@ func (srv *AuthorizationServer) ValidateCode(verifier string, code string) bool 
 
 	info, ok = srv.codes[code]
 	if !ok {
-		return false
+		return nil, errors.New("invalid code")
 	}
 
 	if info.expiry.Before(time.Now()) {
-		return false
+		return nil, errors.New("expired code")
 	}
 
 	var challenge = GenerateCodeChallenge(verifier)
 
 	// Check, if we need to check for a challenge
 	if info.challenge != "" && subtle.ConstantTimeCompare([]byte(challenge), []byte(info.challenge)) == 0 {
-		return false
+		return nil, errors.New("invalid challenge")
 	}
 
 	// Invalidate it
 	delete(srv.codes, code)
 
-	return true
+	return info, nil
 }
 
 // GenerateToken generates a Token (comprising at least an acesss token) for a specific client,
-// as specified by its ID. A signingKey needs to be specified, otherwise an error is thrown.
-// Optionally, if a refreshKey is specified, that key is used to also create a refresh token.
-func (srv *AuthorizationServer) GenerateToken(clientID string, signingKeyID int, refreshKeyID int) (token *Token, err error) {
+// as specified by its ID and optional userID. A signingKey needs to be specified, otherwise an
+// error is thrown. Optionally, if a refreshKey is specified, that key is used to also create a
+// refresh token.
+// The generated access token always has subject=clientID and can include user-specific
+// claims using the "preferred_username" claim and the optional custom claims callback.
+func (srv *AuthorizationServer) GenerateToken(clientID string, userID string, signingKeyID int, refreshKeyID int) (token *Token, err error) {
 	var (
 		expiry     = time.Now().Add(DefaultExpireIn)
 		signingKey *ecdsa.PrivateKey
 		refreshKey *ecdsa.PrivateKey
 		ok         bool
+		claims     = jwt.MapClaims{
+			"sub": clientID,
+			"exp": expiry.Unix(),
+		}
 	)
 
 	token = new(oauth2.Token)
@@ -409,27 +449,48 @@ func (srv *AuthorizationServer) GenerateToken(clientID string, signingKeyID int,
 		return nil, errors.New("invalid key ID")
 	}
 
+	// If we have a user ID, we add it as a claim. This will be populated by an
+	// authorization code, but not for client credentials.
+	if userID != "" {
+		claims["sub"] = userID
+		claims["preferred_username"] = userID
+	}
+
+	// Add custom claims, if we have a callback for that
+	if srv.tokenClaimsFunc != nil {
+		for k, v := range srv.tokenClaimsFunc(clientID, userID) {
+			switch k {
+			case "sub", "exp", "preferred_username", "nbf", "iat", "iss", "aud", "jti":
+				continue
+			default:
+				claims[k] = v
+			}
+		}
+	}
+
 	// Create a new JWT
-	t := jwt.NewWithClaims(jwt.SigningMethodES256, jwt.RegisteredClaims{
-		Subject:   clientID,
-		ExpiresAt: jwt.NewNumericDate(expiry),
-	})
+	t := jwt.NewWithClaims(jwt.SigningMethodES256, claims)
 	t.Header["kid"] = fmt.Sprintf("%d", signingKeyID)
 
 	if token.AccessToken, err = t.SignedString(signingKey); err != nil {
 		return nil, err
 	}
 
-	// Create a refresh token, if we have a key for it
+	// Create a refresh token, if we have a key for it.
 	if refreshKeyID != -1 {
 		refreshKey, ok = srv.signingKeys[refreshKeyID]
 		if !ok {
 			return nil, errors.New("invalid key ID")
 		}
 
-		t = jwt.NewWithClaims(jwt.SigningMethodES256, jwt.RegisteredClaims{
-			Subject: clientID,
-		})
+		refreshClaims := jwt.MapClaims{
+			"sub": clientID,
+		}
+		if userID != "" {
+			refreshClaims["preferred_username"] = userID
+		}
+
+		t = jwt.NewWithClaims(jwt.SigningMethodES256, refreshClaims)
 		t.Header["kid"] = fmt.Sprintf("%d", refreshKeyID)
 
 		if token.RefreshToken, err = t.SignedString(refreshKey); err != nil {

@@ -66,7 +66,7 @@ func (h *handler) handleAuthorize(w http.ResponseWriter, r *http.Request) {
 		http.Redirect(w, r, fmt.Sprintf("%s?%s", path.Join(h.baseURL, "/login"), params.Encode()), http.StatusFound)
 	} else {
 		var params = url.Values{}
-		params.Add("code", h.srv.IssueCode(challenge))
+		params.Add("code", h.srv.IssueCode(challenge, session.User.Name))
 		params.Add("state", state)
 
 		http.Redirect(w, r, fmt.Sprintf("%s?%s", redirectURI, params.Encode()), http.StatusFound)
