@@ -51,6 +51,43 @@ docker run -p 8000:8000 ghcr.io/oxisto/oauth2go
 
 A login form is available on http://localhost:8000/login.
 
+## Custom claims
+
+`oauth2go` supports custom access-token claims through `WithTokenClaimsFunc`.
+
+- The callback receives `clientID` and `userID`.
+- `userID` is set for the authorization code flow (when the login integration is used).
+- `userID` is an empty string for client credentials.
+
+Current built-in user claims behavior:
+
+- If `userID` is present, access token `sub` is set to the user and `preferred_username` is included.
+- If `userID` is empty, `sub` is set to the client ID.
+- Refresh tokens keep `sub` as the client ID and include `preferred_username` when a user is present.
+
+Example:
+
+```golang
+srv := oauth2.NewServer(
+    ":8000",
+    oauth2.WithClient("client", "secret", "http://localhost/callback"),
+    login.WithLoginPage(login.WithUser("admin", "admin")),
+    oauth2.WithTokenClaimsFunc(func(clientID string, userID string) map[string]interface{} {
+        claims := map[string]any{
+            "tenant": "default",
+        }
+
+        if userID == "admin" {
+            claims["role"] = "admin"
+        }
+
+        return claims
+    }),
+)
+```
+
+Reserved claims (`sub`, `exp`, `preferred_username`, `nbf`, `iat`, `iss`, `aud`, `jti`) are controlled by the server and ignored if returned by the custom claims callback.
+
 
 ## (To be) Implemented Standards
 

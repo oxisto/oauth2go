@@ -119,9 +119,10 @@ func init() {
 }
 
 func (h *handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	if r.Method == "GET" {
+	switch r.Method {
+	case "GET":
 		h.doLoginGet(w, r)
-	} else if r.Method == "POST" {
+	case "POST":
 		h.doLoginPost(w, r)
 	}
 }

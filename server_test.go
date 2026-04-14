@@ -12,6 +12,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"reflect"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -476,6 +477,35 @@ func TestAuthorizationServer_doAuthorizationCodeFlow(t *testing.T) {
 			wantBody: `{"error": "invalid_request"}`,
 		},
 		{
+			name: "authorization code without user binding",
+			fields: fields{
+				clients: []*Client{
+					{
+						ClientID:     "client",
+						ClientSecret: "secret",
+					},
+				},
+				codes: map[string]*codeInfo{
+					"myCode": {
+						expiry:    time.Now().Add(10 * time.Minute),
+						challenge: testChallenge,
+					},
+				},
+			},
+			args: args{
+				r: &http.Request{
+					Method: "POST",
+					Header: http.Header{
+						http.CanonicalHeaderKey("Authorization"): []string{"Basic Y2xpZW50OnNlY3JldA=="}, // client:secret
+						http.CanonicalHeaderKey("Content-Type"):  []string{"application/x-www-form-urlencoded"},
+					},
+					Body: io.NopCloser(strings.NewReader(fmt.Sprintf("code=myCode&code_verifier=%s", testVerifier))),
+				},
+			},
+			wantCode: http.StatusBadRequest,
+			wantBody: `{"error": "invalid_grant"}`,
+		},
+		{
 			name: "problem with JWT",
 			fields: fields{
 				clients: []*Client{
@@ -488,6 +518,7 @@ func TestAuthorizationServer_doAuthorizationCodeFlow(t *testing.T) {
 					"myCode": {
 						expiry:    time.Now().Add(10 * time.Minute),
 						challenge: testChallenge,
+						userID:    "admin",
 					},
 				},
 				signingKeys: map[int]*ecdsa.PrivateKey{
@@ -860,7 +891,7 @@ func TestAuthorizationServer_GenerateToken(t *testing.T) {
 				codes:       tt.fields.codes,
 			}
 
-			gotToken, err := srv.GenerateToken(tt.args.clientID, tt.args.signingKeyID, tt.args.refreshKeyID)
+			gotToken, err := srv.GenerateToken(tt.args.clientID, "", tt.args.signingKeyID, tt.args.refreshKeyID)
 			if (err != nil) != tt.wantErr {
 				t.Errorf("AuthorizationServer.GenerateToken() error = %v, wantErr %v", err, tt.wantErr)
 				return
@@ -868,6 +899,230 @@ func TestAuthorizationServer_GenerateToken(t *testing.T) {
 
 			if !reflect.DeepEqual(gotToken, tt.wantToken) {
 				t.Errorf("AuthorizationServer.GenerateToken() = %v, want %v", gotToken, tt.wantToken)
+			}
+		})
+	}
+}
+
+func TestAuthorizationServer_GenerateToken_CustomClaims(t *testing.T) {
+	type fields struct {
+		signingKeys     map[int]*ecdsa.PrivateKey
+		tokenClaimsFunc tokenClaimsFunc
+	}
+	type args struct {
+		clientID     string
+		userID       string
+		signingKeyID int
+		refreshKeyID int
+	}
+	tests := []struct {
+		name       string
+		fields     fields
+		args       args
+		wantClaims map[string]interface{}
+	}{
+		{
+			name: "custom claims with reserved overrides ignored",
+			fields: fields{
+				signingKeys: map[int]*ecdsa.PrivateKey{
+					0: testSigningKey,
+				},
+				tokenClaimsFunc: func(clientID string, userID string) map[string]interface{} {
+					claims := map[string]interface{}{
+						"tenant": "default",
+					}
+
+					if userID == "alice" {
+						claims["role"] = "admin"
+					}
+
+					// This should be ignored by GenerateToken.
+					claims["sub"] = "malicious"
+
+					return claims
+				},
+			},
+			args: args{
+				clientID:     "client",
+				userID:       "alice",
+				signingKeyID: 0,
+				refreshKeyID: -1,
+			},
+			wantClaims: map[string]interface{}{
+				"sub":                "alice",
+				"preferred_username": "alice",
+				"tenant":             "default",
+				"role":               "admin",
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			srv := &AuthorizationServer{
+				signingKeys:     tt.fields.signingKeys,
+				tokenClaimsFunc: tt.fields.tokenClaimsFunc,
+			}
+
+			token, err := srv.GenerateToken(tt.args.clientID, tt.args.userID, tt.args.signingKeyID, tt.args.refreshKeyID)
+			if err != nil {
+				t.Fatalf("GenerateToken() error = %v", err)
+			}
+
+			claims := jwt.MapClaims{}
+			_, err = jwt.ParseWithClaims(token.AccessToken, claims, func(t *jwt.Token) (interface{}, error) {
+				kid, _ := strconv.ParseInt(t.Header["kid"].(string), 10, 64)
+
+				return &srv.signingKeys[int(kid)].PublicKey, nil
+			})
+			if err != nil {
+				t.Fatalf("ParseWithClaims() error = %v", err)
+			}
+
+			for key, want := range tt.wantClaims {
+				if claims[key] != want {
+					t.Fatalf("access token %s = %v, want %v", key, claims[key], want)
+				}
+			}
+		})
+	}
+}
+
+func TestAuthorizationServer_GenerateToken_CustomClaimsViaOption(t *testing.T) {
+	srv := NewServer(":0",
+		WithSigningKeysFunc(func() map[int]*ecdsa.PrivateKey {
+			return map[int]*ecdsa.PrivateKey{0: testSigningKey}
+		}),
+		WithTokenClaimsFunc(func(clientID string, userID string) map[string]interface{} {
+			claims := map[string]interface{}{}
+
+			if userID == "" {
+				claims["flow"] = "client"
+			} else {
+				claims["flow"] = "user"
+			}
+
+			// Must be ignored by server-controlled reserved claims logic.
+			claims["sub"] = "override"
+
+			return claims
+		}),
+	)
+
+	tests := []struct {
+		name          string
+		userID        string
+		wantSub       string
+		wantFlow      string
+		wantPreferred bool
+	}{
+		{
+			name:          "user flow",
+			userID:        "alice",
+			wantSub:       "alice",
+			wantFlow:      "user",
+			wantPreferred: true,
+		},
+		{
+			name:          "client flow",
+			userID:        "",
+			wantSub:       "client",
+			wantFlow:      "client",
+			wantPreferred: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			token, err := srv.GenerateToken("client", tt.userID, 0, -1)
+			if err != nil {
+				t.Fatalf("GenerateToken() error = %v", err)
+			}
+
+			claims := jwt.MapClaims{}
+			_, err = jwt.ParseWithClaims(token.AccessToken, claims, func(t *jwt.Token) (interface{}, error) {
+				kid, _ := strconv.ParseInt(t.Header["kid"].(string), 10, 64)
+
+				return &srv.signingKeys[int(kid)].PublicKey, nil
+			})
+			if err != nil {
+				t.Fatalf("ParseWithClaims() error = %v", err)
+			}
+
+			if claims["sub"] != tt.wantSub {
+				t.Fatalf("access token sub = %v, want %v", claims["sub"], tt.wantSub)
+			}
+
+			if claims["flow"] != tt.wantFlow {
+				t.Fatalf("access token flow = %v, want %v", claims["flow"], tt.wantFlow)
+			}
+
+			_, hasPreferred := claims["preferred_username"]
+			if hasPreferred != tt.wantPreferred {
+				t.Fatalf("access token preferred_username presence = %v, want %v", hasPreferred, tt.wantPreferred)
+			}
+		})
+	}
+}
+
+func TestAuthorizationServer_GenerateToken_RefreshClaimsForUser(t *testing.T) {
+	type fields struct {
+		signingKeys map[int]*ecdsa.PrivateKey
+	}
+	type args struct {
+		clientID string
+		userID   string
+	}
+	tests := []struct {
+		name          string
+		fields        fields
+		args          args
+		wantSub       string
+		wantPreferred string
+	}{
+		{
+			name: "refresh token has user claim when user provided",
+			fields: fields{
+				signingKeys: map[int]*ecdsa.PrivateKey{
+					0: testSigningKey,
+				},
+			},
+			args: args{
+				clientID: "client",
+				userID:   "alice",
+			},
+			wantSub:       "client",
+			wantPreferred: "alice",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			srv := &AuthorizationServer{
+				signingKeys: tt.fields.signingKeys,
+			}
+
+			token, err := srv.GenerateToken(tt.args.clientID, tt.args.userID, 0, 0)
+			if err != nil {
+				t.Fatalf("GenerateToken() error = %v", err)
+			}
+
+			claims := jwt.MapClaims{}
+			_, err = jwt.ParseWithClaims(token.RefreshToken, claims, func(t *jwt.Token) (interface{}, error) {
+				kid, _ := strconv.ParseInt(t.Header["kid"].(string), 10, 64)
+
+				return &srv.signingKeys[int(kid)].PublicKey, nil
+			})
+			if err != nil {
+				t.Fatalf("ParseWithClaims(refresh) error = %v", err)
+			}
+
+			if claims["sub"] != tt.wantSub {
+				t.Fatalf("refresh token sub = %v, want %v", claims["sub"], tt.wantSub)
+			}
+
+			if claims["preferred_username"] != tt.wantPreferred {
+				t.Fatalf("refresh token preferred_username = %v, want %v", claims["preferred_username"], tt.wantPreferred)
 			}
 		})
 	}
