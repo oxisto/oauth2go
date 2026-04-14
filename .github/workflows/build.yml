@@ -15,7 +15,7 @@ jobs:
     env:
       CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
     steps:
-      - uses: actions/checkout@v2
+      - uses: actions/checkout@v4
 
       - name: Determine Version
         run: |
@@ -30,13 +30,17 @@ jobs:
             export VERSION=${VERSION:1:${#VERSION}}
             echo "Building as ${VERSION}"
           fi
-          echo "##[set-output name=version;]$VERSION"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
         id: determine_version
 
       - name: Set up Go
-        uses: actions/setup-go@v2
+        uses: actions/setup-go@v5
         with:
-          go-version: 1.21
+          go-version-file: go.mod
+          check-latest: true
+
+      - name: Go Version
+        run: go version
 
       - name: Lint
         run: go vet ./...
